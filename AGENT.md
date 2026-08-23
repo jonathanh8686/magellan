@@ -4,6 +4,63 @@ Running log of work done on Magellan. Newest entries at the top. Standards
 and conventions live in `CLAUDE.md`, not here — this file is history, not
 rules.
 
+## 2026-08-22 — Claude-powered plan detection (`cogs/planner.py`)
+
+User asked to "hook this up to Claude API" — clarified into three candidate
+features (parse chat into plans / natural-language trip Q&A / general chat)
+and the user picked the first: passively detect plan-shaped messages and
+offer to turn them into an `/event`. This is the "Listening" half of the
+bot's original stated purpose, previously just a no-op stub.
+
+- **Flow**: a regex pre-filter (`_TRIGGER_PATTERN` — day names, "tonight"/
+  "tomorrow", time-like tokens, "let's...", "who's down", meal words) gates
+  every message from a traveler-role member before it's sent to Claude at
+  all — cost/noise control, not a feature. Only pre-filtered messages go to
+  `claude-opus-5` via `client.messages.parse(..., output_format=PlanDraft)`
+  (Pydantic structured output: `is_plan`, `title`, `when`, `location`). If
+  `is_plan` and both `title`/`when` are present, the bot replies with a
+  **Create plan** / **Ignore** button pair. Tapping Create calls the exact
+  same fan-out logic as `/event create` — extracted into a new shared
+  `RSVP.create_and_announce()` method so the DM-fanout code isn't
+  duplicated between the slash command and the button (see refactor
+  below). Nothing is created without a human tap.
+- **Refactor**: pulled the body of `RSVP.event_create` (create the DB row,
+  post the channel embed, DM the traveler role, collect failures) into
+  `RSVP.create_and_announce(...)`, callable from any cog. `planner.py`
+  reaches it via `bot.get_cog("RSVP")` at click time, *not* a module-level
+  `from magellan.cogs.rsvp import ...` — a direct import would hold a
+  reference to the pre-reload function object once `--reload` swaps
+  `rsvp.py`'s module out, silently running stale code. `get_cog()` doesn't
+  have that problem.
+- **Model/config choices**: `claude-opus-5` hardcoded (current Anthropic
+  default per the `/claude-api` skill — "always use unless the user names a
+  different model," which didn't happen here), `client.messages.parse()`
+  with a Pydantic `PlanDraft` model rather than hand-parsing raw JSON
+  (skill-recommended structured-output path). `ANTHROPIC_API_KEY` added to
+  `Config` as optional — unset just disables the feature (logged once),
+  doesn't fail startup, since nothing else in the bot depends on it.
+- **Design choice — suggest, don't auto-create.** Considered
+  auto-creating on high-confidence extraction; rejected because a false
+  positive would spam-DM the entire trip roster with a bogus plan. A
+  human tap is cheap and the failure mode of requiring it (someone ignores
+  a real plan suggestion) is much less costly than the alternative.
+- **Design choice — non-persistent suggestion buttons.** Unlike
+  `RSVPButton` (a `DynamicItem`, survives restarts), `PlanSuggestionView`
+  is a plain `View` with a 10-minute timeout. A suggestion is tied to one
+  specific recent message; going stale across a rare bot restart is an
+  acceptable tradeoff for not needing per-suggestion persistence/cleanup.
+- Verified: `ruff check .` clean, all modules import, and the regex
+  pre-filter + `PlanDraft` schema were smoke-tested directly (5 trigger/
+  non-trigger cases, all correct; Pydantic round-trip and JSON schema
+  both look right). **Not verified**: an actual live call to Claude — no
+  `ANTHROPIC_API_KEY` or `ant` CLI credentials available in this session,
+  so the extraction quality/prompt (`SYSTEM_PROMPT` in `planner.py`) is
+  untested against the real model. Worth a deliberate test pass once a key
+  is available — try borderline phrasings ("maybe cooking class Saturday?"
+  vs. a firm plan) to see if `is_plan` is well-calibrated.
+- Not implemented yet: rate limiting/dedup on the Claude calls (documented
+  as an accepted gap at this trip-group's scale — see CLAUDE.md).
+
 ## 2026-08-22 — Hot reload for cogs (`--reload`)
 
 Added `uv run magellan --reload`: `watchfiles.awatch()` watches

@@ -17,6 +17,7 @@ logger = logging.getLogger("magellan.bot")
 INITIAL_COGS = (
     "magellan.cogs.general",
     "magellan.cogs.rsvp",
+    "magellan.cogs.planner",
 )
 
 COGS_DIR = Path(__file__).parent / "cogs"

@@ -9,8 +9,10 @@ A Discord bot (discord.py) that listens to messages in servers it's in and
 helps members plan things — events, trips, hangouts. First deployed for the
 Europe 2026 trip. Two feature areas will grow over time:
 
-- **Listening**: passive message observation/parsing (mentions, keywords,
-  reactions) that feeds into planning features or logging.
+- **Listening**: passive message observation/parsing that feeds into
+  planning features. `cogs/planner.py` is the first of these — a keyword
+  pre-filter + Claude extraction that turns a plan-shaped chat message into
+  a suggested `/event`. See the dedicated section below.
 - **Planning**: slash commands and flows for creating/joining/tracking plans
   (RSVPs, polls, scheduling). RSVP (`cogs/rsvp.py`) is the first of these —
   see the dedicated section below.
@@ -34,6 +36,14 @@ into one file — see Architecture below.
   mechanism.
 - `ruff` for lint + format. No mypy/pytest set up yet — add them when the
   project actually needs type-checking or a test suite, not preemptively.
+- `anthropic` (official SDK) + `pydantic` for the one Claude-backed feature
+  (`cogs/planner.py`). Use the SDK's structured-output helper
+  (`client.messages.parse(..., output_format=SomeBaseModel)`) for anything
+  that extracts structured data from text — don't hand-roll JSON parsing of
+  a free-text response. Model is hardcoded to `claude-opus-5` in
+  `planner.py` (Anthropic's current flagship) — don't downgrade for cost
+  without the user asking; if a second Claude-backed feature shows up, keep
+  using `claude-opus-5` unless told otherwise for that feature too.
 
 ## Architecture conventions
 
@@ -65,6 +75,14 @@ into one file — see Architecture below.
   new code. `watchfiles` is a dev dependency; it's imported lazily inside
   `_watch_cogs` so a production install that skips the dev group doesn't
   need it.
+- **Cross-cog calls must go through `bot.get_cog(...)`, never a direct
+  module import of another cog's function.** `planner.py`'s "Create plan"
+  button looks up `bot.get_cog("RSVP")` at click time and calls
+  `.create_and_announce(...)` on it, rather than importing that function
+  from `rsvp.py` at module load time. A direct import would keep a
+  reference to the *old* function object after `--reload` reloads
+  `rsvp.py`, silently running stale code. `get_cog()` always returns
+  whatever's currently registered.
 
 ## RSVP feature (`cogs/rsvp.py`)
 
@@ -98,6 +116,42 @@ into one file — see Architecture below.
   after creation, and reminding *specific* people rather than everyone
   pending. Add these when actually needed.
 
+## Planner feature (`cogs/planner.py`)
+
+- **A cheap regex pre-filter runs before every Claude call.** `_TRIGGER_PATTERN`
+  gates on day names, "tonight"/"tomorrow", time-like tokens, and a handful
+  of planning phrases ("let's...", "who's down", meal words). This exists
+  purely to keep the bot from sending every message in the server to the
+  API — it will have false negatives (a real plan phrased unusually gets
+  missed) and that's an accepted tradeoff, not a bug to "fix" by loosening
+  it into a near-match-everything pattern.
+- **Only messages from members with the traveler role are considered** —
+  same role as RSVP's roster (`TRAVELER_ROLE_ID`), so this only fires in
+  trip-planning contexts, not general server chatter.
+- **Claude only classifies + extracts; it never creates anything.** The
+  `PlanDraft` structured output (`is_plan`, `title`, `when`, `location`) is
+  shown to the user as a suggestion with **Create plan** / **Ignore**
+  buttons. A human tap is what actually calls
+  `RSVP.create_and_announce(...)` — don't change this to auto-create on a
+  high-confidence extraction; false positives creating spam plans (and
+  spam DMs to the whole trip) are worse than requiring a tap.
+- **`PlanSuggestionView` is a plain `discord.ui.View`, not a
+  `DynamicItem`** (contrast with `RSVPButton`). It's fine for a suggestion
+  to go stale after a bot restart — it's tied to one specific message from
+  a few minutes ago, not a standing artifact like an event announcement.
+  `on_timeout` disables the buttons after 10 minutes either way.
+- **Claude API failures are swallowed, not surfaced** — `_extract()` catches
+  `anthropic.APIError` broadly and returns `None` (no suggestion posted).
+  This is deliberate: a transient API hiccup should never look like a
+  broken bot to someone just chatting normally. If you add a feature that
+  *requires* the Claude call to succeed (unlike this best-effort one), use
+  a proper typed-exception chain instead — see `shared` error-handling
+  guidance in the Claude API docs.
+- Not implemented yet: per-user/per-channel rate limiting on the Claude
+  calls, and de-duplicating repeated suggestions when a conversation
+  reformulates the same plan across several messages. Fine at the current
+  trip-group scale (~9 people); revisit if it gets noisy.
+
 ## Style
 
 - Type hints everywhere; `from __future__ import annotations` at the top of
@@ -116,9 +170,14 @@ into one file — see Architecture below.
 
 - `.env` is gitignored and must never be committed. `.env.example` documents
   every variable `Config` reads — keep them in sync when adding a new one.
-- Never print or log the bot token. `bot.run(..., log_handler=None)` in
-  `__main__.py` is deliberate — discord.py's default log handler is fine, but
-  if that ever changes, make sure token values can't end up in logs.
+- Never print or log the bot token or `ANTHROPIC_API_KEY`. `bot.run(...,
+  log_handler=None)` in `__main__.py` is deliberate — discord.py's default
+  log handler is fine, but if that ever changes, make sure token values
+  can't end up in logs.
+- `ANTHROPIC_API_KEY` is optional at the `Config` level — unset just
+  disables `planner.py`'s listening (logged once as a warning), it doesn't
+  fail startup. Don't make it required; RSVP and the rest of the bot don't
+  depend on it.
 
 ## Workflow expectations
 

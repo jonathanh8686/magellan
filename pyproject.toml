@@ -5,7 +5,9 @@ description = "Discord bot for message listening and event planning"
 requires-python = ">=3.12"
 dependencies = [
     "aiosqlite>=0.22.1",
+    "anthropic>=1.0.0",
     "discord-py>=2.4",
+    "pydantic>=2.13.4",
     "python-dotenv>=1.2.3",
 ]
 

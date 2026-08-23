@@ -181,6 +181,54 @@ class RSVP(commands.Cog):
             await interaction.response.send_message(_ROLE_NOT_CONFIGURED_ERROR, ephemeral=True)
         return role
 
+    async def create_and_announce(
+        self,
+        *,
+        guild: discord.Guild,
+        channel: discord.TextChannel | discord.Thread,
+        title: str,
+        when_text: str,
+        location: str | None,
+        notes: str | None,
+        created_by: int,
+    ) -> tuple[Event, int, list[discord.Member]]:
+        """Create a plan, post the tally embed in `channel`, and DM the traveler role.
+
+        The single place that fans a plan out to the roster — shared by
+        `/event create` and the planner cog's "Create plan" button, so don't
+        duplicate this DM-fanout logic at a second call site.
+        """
+        role = self._get_traveler_role(guild)
+        if role is None:
+            raise RuntimeError(_ROLE_NOT_CONFIGURED_ERROR)
+
+        event = await self.bot.store.create_event(
+            guild_id=guild.id,
+            channel_id=channel.id,
+            title=title,
+            when_text=when_text,
+            location=location,
+            notes=notes,
+            created_by=created_by,
+        )
+
+        embed = build_event_embed(event, role, {})
+        message = await channel.send(embed=embed, view=build_rsvp_view(event.id))
+        await self.bot.store.set_message(event.id, message.id)
+
+        sent = 0
+        failed: list[discord.Member] = []
+        for member in role.members:
+            if member.bot:
+                continue
+            try:
+                await member.send(embed=embed, view=build_rsvp_view(event.id))
+                sent += 1
+            except discord.Forbidden:
+                failed.append(member)
+
+        return event, sent, failed
+
     @event_group.command(name="create", description="Create a plan and DM every traveler to RSVP.")
     @app_commands.describe(
         title="What is this?",
@@ -206,30 +254,15 @@ class RSVP(commands.Cog):
 
         await interaction.response.defer(thinking=True)
 
-        event = await self.bot.store.create_event(
-            guild_id=guild.id,
-            channel_id=interaction.channel.id,
+        _event, sent, failed = await self.create_and_announce(
+            guild=guild,
+            channel=interaction.channel,
             title=title,
             when_text=when,
             location=location,
             notes=notes,
             created_by=interaction.user.id,
         )
-
-        embed = build_event_embed(event, role, {})
-        message = await interaction.channel.send(embed=embed, view=build_rsvp_view(event.id))
-        await self.bot.store.set_message(event.id, message.id)
-
-        sent = 0
-        failed: list[discord.Member] = []
-        for member in role.members:
-            if member.bot:
-                continue
-            try:
-                await member.send(embed=embed, view=build_rsvp_view(event.id))
-                sent += 1
-            except discord.Forbidden:
-                failed.append(member)
 
         summary = f"Created **{title}** and posted it here. DMed {sent} traveler(s) to RSVP."
         if failed:

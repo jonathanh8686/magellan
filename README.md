@@ -34,8 +34,9 @@ magellan/
 ├── config.py       # env-based Config dataclass
 ├── store.py        # sqlite storage for plans (events) + RSVPs
 └── cogs/           # one file per feature area, loaded in bot.py:INITIAL_COGS
-    ├── general.py  # /ping health check + on_message listener stub
-    └── rsvp.py     # /event create|list|status|remind — plans + DM RSVPs
+    ├── general.py  # /ping health check
+    ├── rsvp.py     # /event create|list|status|remind — plans + DM RSVPs
+    └── planner.py  # passive chat listening → Claude extraction → plan suggestion
 ```
 
 ## RSVP flow
@@ -46,6 +47,19 @@ everyone with the `TRAVELER_ROLE_ID` role a matching embed with **Going** /
 records the RSVP and live-updates the channel embed. `/event list`,
 `/event status <plan>`, and `/event remind <plan>` cover checking in and
 nudging stragglers. See `AGENT.md` for the full design rationale.
+
+## Chat listening → plan suggestions
+
+With `ANTHROPIC_API_KEY` set, the bot passively watches messages from
+travelers (people with the `TRAVELER_ROLE_ID` role). A cheap keyword filter
+first checks whether a message looks plan-shaped at all (a day, a time,
+"let's ...", "who's down", a meal); only those get sent to Claude
+(`claude-opus-5`) to classify + extract a title/when/location. If it looks
+like a real plan, the bot replies with a **Create plan** / **Ignore** button
+— tapping Create runs the exact same post-and-DM flow as `/event create`.
+Nothing is ever created without a human tapping the button. Leave
+`ANTHROPIC_API_KEY` unset to disable this feature entirely; everything else
+still works.
 
 ## Development
 

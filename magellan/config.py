@@ -21,6 +21,7 @@ class Config:
     guild_id: int | None
     traveler_role_id: int | None
     db_path: str
+    anthropic_api_key: str | None
 
     @classmethod
     def from_env(cls) -> Config:
@@ -40,4 +41,5 @@ class Config:
             guild_id=guild_id,
             traveler_role_id=traveler_role_id,
             db_path=os.getenv("DB_PATH", "data/magellan.db"),
+            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
         )
