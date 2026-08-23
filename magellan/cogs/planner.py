@@ -164,6 +164,18 @@ class Planner(commands.Cog):
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
+        # Temporary broad debug log (see AGENT.md) — every reaction, any
+        # emoji, before any filtering, to see exactly what Discord sends.
+        logger.info(
+            "raw reaction: emoji=%r (id=%r) user=%s message=%s guild=%s client_ready=%s",
+            payload.emoji.name,
+            payload.emoji.id,
+            payload.user_id,
+            payload.message_id,
+            payload.guild_id,
+            self._client is not None,
+        )
+
         if self._client is None or payload.guild_id is None:
             return
         if payload.emoji.name != TRIGGER_EMOJI:
