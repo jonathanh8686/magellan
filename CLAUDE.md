@@ -138,6 +138,20 @@ into one file — see Architecture below.
   the same message (from the same or a different person) is a no-op. It's
   not persisted, so it resets on restart; that's fine, the cost of a rare
   duplicate suggestion after a restart is low.
+- **`is_plan` requires BOTH a date and a time, never just one.** A bare
+  time ("at 10am") or a bare date ("Saturday") alone is not enough —
+  `SYSTEM_PROMPT` and every `PlanDraft` field's `Field(description=...)`
+  both say so explicitly (the field descriptions flow into the JSON
+  schema `messages.parse()` sends, reinforcing the prompt at the schema
+  level too — confirmed via `PlanDraft.model_json_schema()`). This was a
+  direct fix for a real false-negative-in-reverse: an earlier prompt let
+  "cathedral at 10am" (no date at all) through as a valid plan. Don't
+  loosen this back to "a time or a day" without the user asking.
+- **Vaguely-described places should be named, not paraphrased.** The
+  prompt tells Claude to use its own knowledge to identify what a
+  descriptive reference ("the big cathedral in Milan") most likely names
+  (e.g. "Duomo di Milano") for the `title`, rather than repeating the
+  vague phrase verbatim.
 - **Processing feedback is reactions, not text**: ⏳ while the Claude call
   is in flight (removed after), then either the Create/Ignore suggestion
   reply (plan found), ❌ (message didn't have enough to act on), or ⚠️ (the

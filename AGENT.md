@@ -4,6 +4,37 @@ Running log of work done on Magellan. Newest entries at the top. Standards
 and conventions live in `CLAUDE.md`, not here — this file is history, not
 rules.
 
+## 2026-08-23 — Planner: require date+time, identify vague place names
+
+First live test of the 📅 reaction trigger worked end to end (confirmed
+the earlier debugging concern was moot — bot was running current code).
+But it created a plan from "what if we go to that big cathedral in milan
+at 10am", which had two problems the user flagged:
+
+- Only a time was given ("10am"), no date at all — the old prompt's "a
+  specific time or day" was disjunctive and let a bare time through as
+  sufficient. Reworked `SYSTEM_PROMPT` to require BOTH a date (day name,
+  "tomorrow"/"tonight", or an actual date all count) and a time — either
+  one missing means `is_plan: false`, no guessing/filling in a plausible
+  date.
+- The title just repeated "that big cathedral in milan" verbatim instead
+  of recognizing it as (most likely) the Duomo di Milano. Added explicit
+  instruction + a `title` field description telling Claude to use its own
+  knowledge to name a vaguely-described landmark rather than paraphrase
+  the description.
+- Also added `pydantic.Field(description=...)` to every `PlanDraft` field
+  (previously bare `= None` defaults, no descriptions) — confirmed via
+  `PlanDraft.model_json_schema()` that these descriptions flow into the
+  JSON schema `client.messages.parse()` sends as the structured-output
+  constraint, so the requirement is reinforced at the schema level, not
+  just in prose in the system prompt.
+- Verified: `ruff check .` clean, imports clean, schema output inspected
+  directly. **Not yet tested against the live API** — the bot process
+  running in this session (PID 9393/9396, started before this edit,
+  without `--reload`) is still running the old prompt; it needs a restart
+  to pick this up. Told the user rather than restarting it myself, since
+  it's running in their own foreground terminal.
+
 ## 2026-08-23 — Planner: reaction trigger instead of passive listening
 
 User asked to replace the passive on_message + keyword-heuristic trigger

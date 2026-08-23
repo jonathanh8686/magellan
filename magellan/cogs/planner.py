@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import anthropic
 import discord
 from discord.ext import commands
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from magellan.bot import MagellanBot
@@ -26,20 +26,55 @@ TRIGGER_EMOJI = "📅"
 SYSTEM_PROMPT = (
     "You read one Discord message from a group planning a trip together. "
     "A member flagged it as a possible plan by reacting to it, so treat "
-    "that as a signal it's worth a close look, not proof it's usable. "
-    "Decide whether the message actually contains enough to act on: a "
-    "specific thing to do, at a specific time or day. If it does, extract "
-    "a short title, when it is (keep the sender's own wording for the "
-    "day/time), and a location if one is mentioned. If it's too vague to "
-    "act on (no clear activity, or no sense of when), set is_plan to false."
+    "that as a signal it's worth a close look, not proof it's usable.\n\n"
+    "A message only counts as an actionable plan (is_plan: true) if it "
+    "names a specific thing to do AND gives BOTH a date and a time for it. "
+    "A bare time with no date ('at 10am', 'around 7') is not enough on its "
+    "own, and neither is a bare date with no time ('Saturday', 'tomorrow') "
+    "— require both. The date doesn't need to be a literal calendar date: "
+    "a day name, 'tomorrow', or 'tonight' all count as a date. Never invent "
+    "or guess a date or time that isn't stated or clearly implied by the "
+    "message itself — if either is missing, set is_plan to false rather "
+    "than filling in a plausible-sounding one.\n\n"
+    "If it is a plan, extract:\n"
+    "- title: a short, specific title. If the message describes a place "
+    "rather than naming it (e.g. 'the big cathedral in Milan'), use your "
+    "own knowledge of the destination to identify what it's most likely "
+    "referring to (e.g. 'Duomo di Milano') instead of repeating the vague "
+    "description verbatim.\n"
+    "- when: the date and time together, in the sender's own wording where "
+    "possible.\n"
+    "- location: where it is, if mentioned or identifiable from context."
 )
 
 
 class PlanDraft(BaseModel):
-    is_plan: bool
-    title: str | None = None
-    when: str | None = None
-    location: str | None = None
+    is_plan: bool = Field(
+        description=(
+            "True only if the message names a specific activity and gives "
+            "both a date (a day name, 'tomorrow'/'tonight', or an actual "
+            "date all count) and a time. Missing either one means false — "
+            "never treat a bare time or a bare date as sufficient on its own."
+        )
+    )
+    title: str | None = Field(
+        default=None,
+        description=(
+            "A short, specific title. If the message describes a place "
+            "rather than naming it, identify what it most likely refers to "
+            "(e.g. 'the big cathedral in Milan' -> 'Duomo di Milano') "
+            "rather than repeating the vague description."
+        ),
+    )
+    when: str | None = Field(
+        default=None,
+        description=(
+            "The date AND time together, in the sender's own wording where "
+            "possible. Never fill in a date or time that isn't actually "
+            "stated or clearly implied."
+        ),
+    )
+    location: str | None = Field(default=None, description="Where the plan is, if mentioned.")
 
 
 class PlanSuggestionView(discord.ui.View):
