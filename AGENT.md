@@ -4,6 +4,22 @@ Running log of work done on Magellan. Newest entries at the top. Standards
 and conventions live in `CLAUDE.md`, not here — this file is history, not
 rules.
 
+## 2026-08-23 — Switch planner's model to Sonnet
+
+User hit usage limits (checked `/usage-credits`) and asked to switch the
+planner's model. Changed `MODEL` in `cogs/planner.py` from `claude-opus-5`
+to `claude-sonnet-5`. Deliberate cost tradeoff specific to this feature —
+`planner.py` calls the API on every message from a traveler that passes the
+keyword filter, so volume/cost matters more here than for a one-off call.
+Doesn't imply a project-wide preference for Sonnet; if another Claude-backed
+feature gets added later, don't assume it should also default to Sonnet —
+ask, or default to Opus per Anthropic's own guidance unless the same
+high-volume tradeoff applies. Not yet re-tested against the live API
+(same "no credentials in this session" gap as before) — the prompt was
+written without a specific model in mind, so it's worth a spot-check once
+a key is available to make sure Sonnet's extraction quality is good enough
+for this use case, not just cheaper.
+
 ## 2026-08-22 — Claude-powered plan detection (`cogs/planner.py`)
 
 User asked to "hook this up to Claude API" — clarified into three candidate

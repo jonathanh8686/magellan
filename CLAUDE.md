@@ -40,10 +40,13 @@ into one file — see Architecture below.
   (`cogs/planner.py`). Use the SDK's structured-output helper
   (`client.messages.parse(..., output_format=SomeBaseModel)`) for anything
   that extracts structured data from text — don't hand-roll JSON parsing of
-  a free-text response. Model is hardcoded to `claude-opus-5` in
-  `planner.py` (Anthropic's current flagship) — don't downgrade for cost
-  without the user asking; if a second Claude-backed feature shows up, keep
-  using `claude-opus-5` unless told otherwise for that feature too.
+  a free-text response. Model is hardcoded to `claude-sonnet-5` in
+  `planner.py` — the user explicitly chose Sonnet over the default Opus
+  here for cost (a passive per-message classifier is high-volume). If a
+  second Claude-backed feature shows up, don't assume Sonnet for it too —
+  that choice was specific to this feature's call volume, not a blanket
+  project preference; ask, or default back to Opus per Anthropic's own
+  guidance, unless the same cost tradeoff clearly applies.
 
 ## Architecture conventions
 

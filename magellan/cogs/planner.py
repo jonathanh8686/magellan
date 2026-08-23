@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("magellan.cogs.planner")
 
-MODEL = "claude-opus-5"
+MODEL = "claude-sonnet-5"
 
 # Cheap keyword pre-filter so we don't send every message in the server to
 # Claude — only messages that already look plan-shaped get extracted at all.
