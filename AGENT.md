@@ -4,6 +4,42 @@ Running log of work done on Magellan. Newest entries at the top. Standards
 and conventions live in `CLAUDE.md`, not here — this file is history, not
 rules.
 
+## 2026-08-22 — RSVP feature: plans + DM Yes/No buttons
+
+Built the first real feature: `/event create|list|status|remind`, for the
+Europe 2026 trip (per `~/europe2026/data.json`, 9 confirmed travelers as of
+this writing — that file has names only, no Discord identities).
+
+- **Roster decision**: asked the user how to map "everyone on the trip" to
+  Discord accounts (role vs. self-registration vs. manual admin mapping) —
+  went with **a Discord role** (`TRAVELER_ROLE_ID` in `.env`). No manual ID
+  entry, stays correct as the role's membership changes. See CLAUDE.md's
+  "RSVP feature" section for the full rationale — don't relitigate this
+  without a real reason (e.g. a feature that needs a different audience than
+  the whole trip).
+- **Storage**: added `magellan/store.py`, a thin `aiosqlite` wrapper (no
+  ORM) with `events` and `rsvps` tables. `MagellanBot` owns one `Store`
+  instance (`bot.store`), connected in `setup_hook`, closed in `close()`.
+  Path is `DB_PATH` env var, default `data/magellan.db` (gitignored).
+- **Persistent per-event buttons**: `RSVPButton` is a `discord.ui.DynamicItem`
+  with the event ID encoded in its `custom_id` and parsed back out via regex
+  — this is what lets buttons on events created *after* a bot restart still
+  work, which a plain `bot.add_view()` at startup can't do. Registered once
+  via `bot.add_dynamic_items(RSVPButton)` in `RSVP.cog_load()`.
+- **Flow**: `/event create` (guild-only) posts a tally embed in the invoking
+  channel and DMs every non-bot member of the traveler role the same embed
+  + Going/Not-going buttons. Any tap (DM or channel) upserts the RSVP in
+  sqlite and live-edits the channel embed. `/event status`/`/event remind`
+  use autocomplete over open events in the guild.
+- Verified: `ruff check .` clean, all modules import, and `store.py`'s
+  create/upsert/list logic smoke-tested directly against a temp sqlite file
+  (including the "change your mind" upsert path) — no real bot token
+  available in this session, so the Discord-facing half (actual DMs,
+  button interactions, embed edits) is untested against the live API.
+- Not done yet: closing/archiving a plan, editing plan details after
+  creation, targeted reminders to specific people. `data/` dir and role
+  setup instructions are in README.md.
+
 ## 2026-08-22 — Project bootstrap
 
 Initialized the empty repo with a working discord.py boilerplate.

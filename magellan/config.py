@@ -19,6 +19,8 @@ class Config:
     token: str
     command_prefix: str
     guild_id: int | None
+    traveler_role_id: int | None
+    db_path: str
 
     @classmethod
     def from_env(cls) -> Config:
@@ -29,8 +31,13 @@ class Config:
         guild_id_raw = os.getenv("DEV_GUILD_ID")
         guild_id = int(guild_id_raw) if guild_id_raw else None
 
+        traveler_role_id_raw = os.getenv("TRAVELER_ROLE_ID")
+        traveler_role_id = int(traveler_role_id_raw) if traveler_role_id_raw else None
+
         return cls(
             token=token,
             command_prefix=os.getenv("COMMAND_PREFIX", "!"),
             guild_id=guild_id,
+            traveler_role_id=traveler_role_id,
+            db_path=os.getenv("DB_PATH", "data/magellan.db"),
         )

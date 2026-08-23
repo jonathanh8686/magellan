@@ -8,17 +8,20 @@ import discord
 from discord.ext import commands
 
 from magellan.config import Config
+from magellan.store import Store
 
 logger = logging.getLogger("magellan.bot")
 
 INITIAL_COGS = (
     "magellan.cogs.general",
+    "magellan.cogs.rsvp",
 )
 
 
 class MagellanBot(commands.Bot):
     def __init__(self, config: Config) -> None:
         self.config = config
+        self.store = Store(config.db_path)
 
         intents = discord.Intents.default()
         intents.message_content = True
@@ -27,6 +30,8 @@ class MagellanBot(commands.Bot):
         super().__init__(command_prefix=config.command_prefix, intents=intents)
 
     async def setup_hook(self) -> None:
+        await self.store.connect()
+
         for extension in INITIAL_COGS:
             await self.load_extension(extension)
             logger.info("Loaded extension %s", extension)
@@ -42,3 +47,7 @@ class MagellanBot(commands.Bot):
 
     async def on_ready(self) -> None:
         logger.info("Logged in as %s (id=%s)", self.user, self.user.id if self.user else "?")
+
+    async def close(self) -> None:
+        await self.store.close()
+        await super().close()
