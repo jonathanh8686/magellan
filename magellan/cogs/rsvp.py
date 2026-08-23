@@ -12,6 +12,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from magellan.permissions import NOT_A_TRAVELER_MESSAGE, is_traveler, traveler_only
 from magellan.store import Event
 
 if TYPE_CHECKING:
@@ -100,6 +101,13 @@ class RSVPButton(discord.ui.DynamicItem[discord.ui.Button], template=RSVP_CUSTOM
             await interaction.response.send_message(
                 "This plan no longer accepts RSVPs.", ephemeral=True
             )
+            return
+
+        # interaction.guild is None when this button is clicked from a DM
+        # (the common case) — resolve the guild via the event row instead.
+        guild = bot.get_guild(event.guild_id)
+        if not is_traveler(bot, guild, interaction.user):
+            await interaction.response.send_message(NOT_A_TRAVELER_MESSAGE, ephemeral=True)
             return
 
         await bot.store.upsert_rsvp(self.event_id, interaction.user.id, self.choice)
@@ -236,6 +244,7 @@ class RSVP(commands.Cog):
         location="Where is it? (optional)",
         notes="Any extra details? (optional)",
     )
+    @traveler_only()
     async def event_create(
         self,
         interaction: discord.Interaction,
@@ -273,6 +282,7 @@ class RSVP(commands.Cog):
         await interaction.followup.send(summary)
 
     @event_group.command(name="list", description="List open plans and their RSVP counts.")
+    @traveler_only()
     async def event_list(self, interaction: discord.Interaction) -> None:
         guild = await self._require_guild(interaction)
         if guild is None:
@@ -301,6 +311,7 @@ class RSVP(commands.Cog):
     @event_group.command(name="status", description="See who has and hasn't responded to a plan.")
     @app_commands.describe(event="Which plan")
     @app_commands.autocomplete(event=_event_autocomplete)
+    @traveler_only()
     async def event_status(self, interaction: discord.Interaction, event: str) -> None:
         guild = await self._require_guild(interaction)
         if guild is None:
@@ -324,6 +335,7 @@ class RSVP(commands.Cog):
     )
     @app_commands.describe(event="Which plan")
     @app_commands.autocomplete(event=_event_autocomplete)
+    @traveler_only()
     async def event_remind(self, interaction: discord.Interaction, event: str) -> None:
         guild = await self._require_guild(interaction)
         if guild is None:

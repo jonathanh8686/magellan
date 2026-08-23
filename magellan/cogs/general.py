@@ -8,6 +8,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from magellan.permissions import traveler_only
+
 logger = logging.getLogger("magellan.cogs.general")
 
 
@@ -16,6 +18,7 @@ class General(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="ping", description="Check that the bot is alive and responsive.")
+    @traveler_only()
     async def ping(self, interaction: discord.Interaction) -> None:
         latency_ms = round(self.bot.latency * 1000)
         await interaction.response.send_message(f"Pong! ({latency_ms}ms)")

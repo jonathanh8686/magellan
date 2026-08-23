@@ -87,6 +87,43 @@ into one file — see Architecture below.
   `rsvp.py`, silently running stale code. `get_cog()` always returns
   whatever's currently registered.
 
+## Permissions (`magellan/permissions.py`)
+
+- **Every operation is traveler-only, with no exceptions carved out.** The
+  user's instruction was literal: "all operations should only be permitted
+  by people with the travel role." That includes `/ping` — not just the
+  RSVP/planning commands — and every button click (RSVP Going/Not-going,
+  plan-suggestion Create/Ignore), not just slash commands. If you add a new
+  slash command or interactive component, gate it too; don't assume
+  something is low-stakes enough to skip.
+- **One shared gate, `is_traveler(bot, guild, user)` + `traveler_only()`**,
+  used everywhere instead of each cog re-deriving "does this user have the
+  role" — this was worth extracting up front (not waiting for a third use)
+  because getting the DM-guild-resolution edge case right in one place
+  matters more than avoiding a small abstraction.
+- **`is_traveler` takes `guild` as an explicit argument — never reads
+  `interaction.guild` itself.** `interaction.guild` is `None` for a
+  component interaction that originated in a DM, which is the *normal* case
+  for `RSVPButton` (most people RSVP from their DMs). Passing `guild=None`
+  there would silently lock every DM-based RSVP out. Callers resolve the
+  right guild explicitly: `interaction.guild` when the interaction is
+  known to be in-guild (slash commands, the plan-suggestion buttons, which
+  are only ever posted in-channel), or `bot.get_guild(event.guild_id)` /
+  `bot.get_guild(payload.guild_id)` when it might not be (RSVPButton, the
+  📅 reaction listener).
+- **`traveler_only()` is an `app_commands.check`**, applied as a decorator
+  to every slash command (`@traveler_only()`, alongside `@event_group.
+  command(...)` / `@app_commands.command(...)`). It raises `NotATraveler`
+  (a `CheckFailure` subclass) rather than sending a response itself — the
+  actual ephemeral reply comes from `MagellanBot._on_app_command_error`, a
+  single global handler registered via `self.tree.error(...)` in
+  `setup_hook`. Don't add per-cog `cog_app_command_error` handlers for this
+  — the global one already covers every cog.
+- **Component callbacks (buttons) check `is_traveler(...)` inline** at the
+  top of the callback and send their own ephemeral denial — there's no
+  equivalent global hook for component-interaction errors, so this can't
+  be centralized the same way the slash-command check is.
+
 ## RSVP feature (`cogs/rsvp.py`)
 
 - **The roster is a Discord role, not a hardcoded list.** "Everyone on the

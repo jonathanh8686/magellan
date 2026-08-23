@@ -15,9 +15,12 @@ uv run magellan
 faster than the up-to-an-hour propagation for global commands. Use it while
 developing; leave it blank in production.
 
-`TRAVELER_ROLE_ID` is required for `/event` (RSVP): give everyone on the trip
-a role in the server (e.g. `@Traveler`), then paste that role's ID in. This
-is how the bot knows who to DM.
+`TRAVELER_ROLE_ID` is required for the bot to do anything at all: give
+everyone on the trip a role in the server (e.g. `@Traveler`), then paste
+that role's ID in. It's both the DM roster for `/event` and the permission
+gate — every command and every button (RSVP, plan suggestions, even `/ping`)
+only works for members with this role. Without it configured, the bot
+declines every interaction.
 
 Requirements in the Discord Developer Portal, under your bot's settings:
 - **Privileged Gateway Intents** → enable **Server Members Intent** (needed
@@ -33,11 +36,20 @@ magellan/
 ├── bot.py          # MagellanBot: intents, store lifecycle, cog loading, command sync
 ├── config.py       # env-based Config dataclass
 ├── store.py        # sqlite storage for plans (events) + RSVPs
+├── permissions.py  # shared traveler-role gate for every command + button
 └── cogs/           # one file per feature area, loaded in bot.py:INITIAL_COGS
     ├── general.py  # /ping health check
     ├── rsvp.py     # /event create|list|status|remind — plans + DM RSVPs
     └── planner.py  # 📅 reaction → Claude extraction → plan suggestion
 ```
+
+## Permissions
+
+Every command and every button (`/ping`, `/event ...`, RSVP Going/Not-going,
+plan-suggestion Create/Ignore) only works for members with the
+`TRAVELER_ROLE_ID` role — anyone else gets an ephemeral "you need the
+traveler role" reply. This is enforced centrally in `permissions.py`, not
+re-checked ad hoc per feature.
 
 ## RSVP flow
 

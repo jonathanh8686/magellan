@@ -14,6 +14,8 @@ import discord
 from discord.ext import commands
 from pydantic import BaseModel, Field
 
+from magellan.permissions import NOT_A_TRAVELER_MESSAGE, is_traveler
+
 if TYPE_CHECKING:
     from magellan.bot import MagellanBot
     from magellan.cogs.rsvp import RSVP
@@ -107,6 +109,10 @@ class PlanSuggestionView(discord.ui.View):
             )
             return
 
+        if not is_traveler(bot, interaction.guild, interaction.user):
+            await interaction.response.send_message(NOT_A_TRAVELER_MESSAGE, ephemeral=True)
+            return
+
         await interaction.response.defer()
         for item in self.children:
             item.disabled = True
@@ -132,6 +138,11 @@ class PlanSuggestionView(discord.ui.View):
 
     @discord.ui.button(label="Ignore", emoji="❌", style=discord.ButtonStyle.secondary)
     async def ignore(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        bot: MagellanBot = interaction.client  # type: ignore[assignment]
+        if not is_traveler(bot, interaction.guild, interaction.user):
+            await interaction.response.send_message(NOT_A_TRAVELER_MESSAGE, ephemeral=True)
+            return
+
         for item in self.children:
             item.disabled = True
         await interaction.response.edit_message(content="Dismissed.", embed=None, view=self)
@@ -160,8 +171,8 @@ class Planner(commands.Cog):
         if payload.member is None or payload.member.bot:
             return
 
-        role_id = self.bot.config.traveler_role_id
-        if role_id is None or role_id not in {r.id for r in payload.member.roles}:
+        guild = self.bot.get_guild(payload.guild_id)
+        if not is_traveler(self.bot, guild, payload.member):
             return
 
         if payload.message_id in self._handled_message_ids:

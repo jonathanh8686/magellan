@@ -4,6 +4,50 @@ Running log of work done on Magellan. Newest entries at the top. Standards
 and conventions live in `CLAUDE.md`, not here — this file is history, not
 rules.
 
+## 2026-08-23 — Gate every operation behind the traveler role
+
+User: "All operations should only be permitted by people with the travel
+role." Before this, only the 📅 reaction trigger checked the invoker's
+role — `/event create|list|status|remind`, `/ping`, the RSVP Going/Not-going
+buttons, and the plan-suggestion Create/Ignore buttons were all open to
+anyone in the server.
+
+- New `magellan/permissions.py`: `is_traveler(bot, guild, user)` +
+  `traveler_only()` (an `app_commands.check` that raises `NotATraveler`,
+  a `CheckFailure` subclass), used by every cog. Extracted this as a
+  shared module immediately rather than waiting for a third duplicate —
+  the DM-guild-resolution subtlety below is exactly the kind of thing
+  that's cheap to get right once and easy to get wrong three times
+  separately.
+- **Real bug caught before it shipped**: `is_traveler` takes `guild` as an
+  explicit parameter rather than reading `interaction.guild`.
+  `interaction.guild` is `None` for a component interaction that
+  originated in a DM — which is the *normal* case for `RSVPButton`, since
+  most people RSVP from their DMs, not the channel post. A naive
+  `interaction.guild`-based check would have silently broken every
+  DM-based RSVP. Caught this by writing out the DM code path explicitly
+  rather than assuming; verified with a smoke test using duck-typed stand-ins
+  for `Guild`/`Member` exercising exactly that resolution path (`isinstance`
+  correctly falls through to `guild.get_member(user.id)` for a plain,
+  non-Member `user`, which is what a DM-originated `interaction.user`
+  actually is).
+- Wired a single global handler for the friendly denial message:
+  `self.tree.error(self._on_app_command_error)` in `MagellanBot.setup_hook`
+  (confirmed via `inspect.getsource` that `CommandTree.error()` just does
+  `self.on_error = coro` — didn't guess the registration pattern). Slash
+  commands get this for free by decorating with `@traveler_only()`; button
+  callbacks don't have an equivalent hook, so `RSVPButton.callback`,
+  `PlanSuggestionView.create`, and `.ignore` each call `is_traveler(...)`
+  inline and send their own ephemeral denial.
+- `/ping` is gated too — the instruction was "all operations," no carve-out
+  mentioned, so applied literally rather than assuming a health check
+  should stay open.
+- Verified: `ruff check .` clean, all modules import, and `is_traveler`
+  smoke-tested directly against duck-typed stubs (traveler via DM-resolved
+  guild lookup, non-traveler, guild=None, unknown member, role
+  unconfigured — all five behave correctly). Not tested against the live
+  bot/API in this session.
+
 ## 2026-08-23 — Planner: require date+time, identify vague place names
 
 First live test of the 📅 reaction trigger worked end to end (confirmed

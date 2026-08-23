@@ -7,9 +7,11 @@ import logging
 from pathlib import Path
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from magellan.config import Config
+from magellan.permissions import NotATraveler
 from magellan.store import Store
 
 logger = logging.getLogger("magellan.bot")
@@ -37,6 +39,7 @@ class MagellanBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         await self.store.connect()
+        self.tree.error(self._on_app_command_error)
 
         for extension in INITIAL_COGS:
             await self.load_extension(extension)
@@ -61,6 +64,20 @@ class MagellanBot(commands.Bot):
     async def close(self) -> None:
         await self.store.close()
         await super().close()
+
+    async def _on_app_command_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        if isinstance(error, NotATraveler):
+            message = str(error)
+        else:
+            logger.exception("Unhandled app command error", exc_info=error)
+            message = "Something went wrong running that command."
+
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
 
 
 async def _watch_cogs(bot: MagellanBot) -> None:
