@@ -4,6 +4,35 @@ Running log of work done on Magellan. Newest entries at the top. Standards
 and conventions live in `CLAUDE.md`, not here — this file is history, not
 rules.
 
+## 2026-08-22 — Hot reload for cogs (`--reload`)
+
+Added `uv run magellan --reload`: `watchfiles.awatch()` watches
+`magellan/cogs/`, and on a file change calls `bot.reload_extension()` for
+that cog — swaps the code in-process, no gateway reconnect, no
+re-`tree.sync()`, so command *bodies* update in about a second.
+
+- Added `watchfiles` as a dev dependency (imported lazily inside
+  `bot.py:_watch_cogs`, not at module top-level, so a prod install that
+  skips the dev dependency group never needs it).
+- `MagellanBot` takes a `reload: bool` kwarg (not part of `Config` —
+  it's a CLI toggle, not a deployment setting); `setup_hook` spawns the
+  watcher task when it's set.
+- Had to add `RSVP.cog_unload()` calling `bot.remove_dynamic_items(RSVPButton)`
+  — without it, reloading the RSVP cog would try to register a second
+  `RSVPButton` class against the same custom_id template while the old one
+  was still active. Any future cog that registers global state outside
+  `__init__` (dynamic items, manually-added listeners) needs the same
+  cleanup in `cog_unload` or hot reload will break for it.
+- Known limits (documented in README + CLAUDE.md): doesn't pick up new
+  commands/params (needs `tree.sync()` → restart), doesn't watch files
+  outside `magellan/cogs/`, and only reloads extensions already in
+  `INITIAL_COGS`.
+- Verified: `ruff check .` clean, all modules import, `--help` shows the
+  flag, and `MagellanBot(cfg, reload=True)` wires up correctly with
+  `COGS_DIR` resolving to the real cogs folder. Didn't verify an actual
+  live save-triggers-reload cycle against the gateway — no bot token in
+  this session.
+
 ## 2026-08-22 — Bump to Python 3.12
 
 Switched from 3.10 to 3.12 (`.python-version`, `requires-python`, ruff

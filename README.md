@@ -53,7 +53,16 @@ nudging stragglers. See `AGENT.md` for the full design rationale.
 uv run ruff check .        # lint
 uv run ruff check --fix .  # lint + autofix
 uv run magellan             # run the bot
+uv run magellan --reload    # run with hot reload (see below)
 ```
+
+`--reload` watches `magellan/cogs/*.py` and calls discord.py's
+`reload_extension()` on save — no gateway reconnect, no re-login, changes to
+a command's *body* take effect in about a second. It does **not** pick up:
+new commands/params/descriptions (those need a `tree.sync()`, i.e. a normal
+restart) or changes outside `magellan/cogs/` (`bot.py`, `config.py`,
+`store.py`) — restart normally for those. Dev-only; don't run it in
+production.
 
 See `CLAUDE.md` for coding standards and `AGENT.md` for a running log of work
 done on this project.

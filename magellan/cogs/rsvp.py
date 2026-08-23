@@ -157,6 +157,11 @@ class RSVP(commands.Cog):
     async def cog_load(self) -> None:
         self.bot.add_dynamic_items(RSVPButton)
 
+    async def cog_unload(self) -> None:
+        # Unregister so a hot reload (magellan --reload) can re-add the
+        # freshly-imported RSVPButton class without clashing with this one.
+        self.bot.remove_dynamic_items(RSVPButton)
+
     def _get_traveler_role(self, guild: discord.Guild) -> discord.Role | None:
         if self.bot.config.traveler_role_id is None:
             return None

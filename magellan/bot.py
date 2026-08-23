@@ -1,8 +1,10 @@
-"""Bot subclass: intents, cog loading, and slash command sync."""
+"""Bot subclass: intents, cog loading, slash command sync, and dev hot reload."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from pathlib import Path
 
 import discord
 from discord.ext import commands
@@ -17,11 +19,14 @@ INITIAL_COGS = (
     "magellan.cogs.rsvp",
 )
 
+COGS_DIR = Path(__file__).parent / "cogs"
+
 
 class MagellanBot(commands.Bot):
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, *, reload: bool = False) -> None:
         self.config = config
         self.store = Store(config.db_path)
+        self.reload = reload
 
         intents = discord.Intents.default()
         intents.message_content = True
@@ -35,6 +40,10 @@ class MagellanBot(commands.Bot):
         for extension in INITIAL_COGS:
             await self.load_extension(extension)
             logger.info("Loaded extension %s", extension)
+
+        if self.reload:
+            asyncio.create_task(_watch_cogs(self))
+            logger.info("Hot reload enabled — watching %s", COGS_DIR)
 
         if self.config.guild_id is not None:
             guild = discord.Object(id=self.config.guild_id)
@@ -51,3 +60,33 @@ class MagellanBot(commands.Bot):
     async def close(self) -> None:
         await self.store.close()
         await super().close()
+
+
+async def _watch_cogs(bot: MagellanBot) -> None:
+    """Reload a cog's extension whenever its file changes.
+
+    Only touches already-loaded extensions under INITIAL_COGS — it doesn't
+    load new cogs on the fly. A slash command's name/description/params only
+    take effect after the next `tree.sync()`, i.e. a full restart; this is
+    for iterating on command *bodies* and other cog logic without dropping
+    the gateway connection or re-syncing commands every save.
+    """
+    from watchfiles import Change, awatch
+
+    async for changes in awatch(COGS_DIR):
+        for change, raw_path in changes:
+            path = Path(raw_path)
+            if path.suffix != ".py" or path.stem == "__init__":
+                continue
+
+            extension = f"magellan.cogs.{path.stem}"
+            if extension not in bot.extensions:
+                continue
+            if change == Change.deleted:
+                continue
+
+            try:
+                await bot.reload_extension(extension)
+                logger.info("Hot-reloaded %s", extension)
+            except commands.ExtensionError:
+                logger.exception("Failed to hot-reload %s", extension)

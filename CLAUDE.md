@@ -53,6 +53,18 @@ into one file — see Architecture below.
 - **Entrypoint is `magellan/__main__.py`**, invoked via `uv run magellan`
   (the `project.scripts` entry in `pyproject.toml`) — don't add a second
   entrypoint script at the repo root.
+- **Hot reload** (`uv run magellan --reload`, `bot.py:_watch_cogs`) watches
+  `magellan/cogs/*.py` with `watchfiles` and calls `bot.reload_extension()`
+  on save — dev convenience, not a deployment mode. It only reloads
+  extensions already in `INITIAL_COGS`; it won't pick up a brand-new cog
+  file (still needs adding to `INITIAL_COGS` + a restart) or command
+  signature changes (still need a `tree.sync()`, i.e. a restart). Any cog
+  that registers global state on load (dynamic items, listeners added
+  outside `__init__`) must undo it in `cog_unload()` — see `RSVP.cog_unload`
+  — or reloading it will error/duplicate instead of cleanly swapping in the
+  new code. `watchfiles` is a dev dependency; it's imported lazily inside
+  `_watch_cogs` so a production install that skips the dev group doesn't
+  need it.
 
 ## RSVP feature (`cogs/rsvp.py`)
 
@@ -90,7 +102,7 @@ into one file — see Architecture below.
 
 - Type hints everywhere; `from __future__ import annotations` at the top of
   new modules (already in every existing file) so forward references and
-  `X | None` work on 3.10 without quoting.
+  `X | None` work without quoting.
 - Keep `ruff check .` clean — run `uv run ruff check --fix .` before
   considering a change done. No linter config changes without a reason.
 - No comments that restate what the code does. Comments are for *why*
