@@ -215,6 +215,33 @@ into one file — see Architecture below.
   typed-exception chain instead — see the `shared` error-handling guidance
   in the Claude API docs.
 
+## Deployment (`deploy/`)
+
+- **Production runs on omashu as a systemd service** (`deploy/
+  magellan-bot.service`, deployed to `/etc/systemd/system/` — the repo copy
+  is the source of truth, keep them in sync if you edit one), not Docker.
+  Deliberate choice over matching jonathanhsieh.dev's Docker setup on the
+  same server: this bot has no ports to expose/proxy, just an outbound
+  gateway connection, so a container adds build/rebuild overhead without
+  buying anything. Don't containerize this later without a real reason
+  (e.g. the bot gains a webhook/HTTP surface that needs Apache in front of
+  it — that's the kind of thing that would justify it).
+- **`ExecStart` points at the venv binary directly**
+  (`.venv/bin/magellan`), not `uv run magellan`. `uv run` re-syncs the
+  environment (including the dev dependency group — ruff, watchfiles) on
+  every invocation, which is wasted work and installs dev-only tools in
+  prod on every restart. `deploy/redeploy.sh` is where `uv sync --no-dev`
+  actually runs — once per deploy, not once per process start.
+- **`.env` lives only on the server**, copied there once via `scp`
+  (`chmod 600`), never committed. `redeploy.sh` doesn't touch it — new env
+  vars need a manual edit on omashu, not a code change.
+- **Only one bot instance may hold the gateway connection at a time.**
+  Running a local dev instance (`uv run magellan`) while omashu's is also
+  live means both receive and independently handle every event — this bit
+  us once already (had to remember to stop the local instance after first
+  deploying to omashu). Check before starting a local instance for
+  debugging.
+
 ## Style
 
 - Type hints everywhere; `from __future__ import annotations` at the top of

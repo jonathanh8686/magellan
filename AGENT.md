@@ -4,6 +4,56 @@ Running log of work done on Magellan. Newest entries at the top. Standards
 and conventions live in `CLAUDE.md`, not here — this file is history, not
 rules.
 
+## 2026-08-23 — Deploy to omashu as a systemd service
+
+User wants this running in production, on their existing server "omashu"
+(see [[reference-omashu-server]] memory — GCP instance, SSH via
+`jonathanh1386@35.193.217.32`, alias in `~/.zshrc`). Asked and got answers
+on the two real decisions: **systemd, not Docker** (unlike jonathanhsieh.dev
+on the same server — this bot has no ports to expose/proxy, just an
+outbound gateway connection, so a container buys nothing here), and **OK
+to push to GitHub** (5 local commits were ahead of `origin/main`; pushed to
+`e51ace8` before deploying so omashu could clone).
+
+- omashu had no `uv`, Python 3.11 system-wide, but did already have working
+  SSH access to the `jonathanh8686` GitHub account (verified with `ssh -T
+  git@github.com` before assuming it — didn't guess). Installed `uv` via
+  the official installer, cloned to `~/magellan`, `uv sync --no-dev`
+  (skips ruff/watchfiles in prod) — uv auto-provisioned Python 3.12 on the
+  server the same way it did locally.
+- Copied the local `.env` (which already had real working
+  `DISCORD_TOKEN`/`TRAVELER_ROLE_ID`/`ANTHROPIC_API_KEY`) to the server via
+  `scp`, `chmod 600`. Never printed its contents anywhere.
+- `deploy/magellan-bot.service` (also installed to `/etc/systemd/system/`
+  on the server — keep both in sync) runs `.venv/bin/magellan` directly
+  rather than `uv run magellan`, specifically to avoid `uv run`'s
+  re-sync-on-every-launch behavior reinstalling dev dependencies (ruff,
+  watchfiles) into the prod venv on every restart — caught this on the
+  first `systemctl status` (saw "Downloading ruff" in the logs for what
+  should've been a plain bot start) and fixed by pointing `ExecStart` at
+  the venv binary instead.
+- **Caught and fixed a real duplicate-connection risk**: after confirming
+  omashu's instance was live and logged in (`Logged in as Magellan#3652`),
+  checked whether the local dev `uv run magellan` process from earlier in
+  this session was still running — it had already been stopped (by the
+  user, presumably, since I never restarted it after the two code changes
+  that needed one). Documented in CLAUDE.md as a standing rule: never run
+  a local instance while omashu's is up, since Discord doesn't dedupe
+  events across multiple live sessions on the same token — both would
+  independently handle every message/reaction/interaction.
+- `deploy/redeploy.sh`: `git pull` + `uv sync --no-dev` + `systemctl
+  restart`, run manually on omashu after a push. Doesn't touch `.env` or
+  `data/` (the sqlite db) — those persist across deploys by design (same
+  as `jonathanhsieh.dev`'s `data/` bind-mount convention, minus the Docker
+  part).
+- Verified: `systemctl status` showed `active (running)`, journalctl logs
+  showed all three cogs loading, slash commands syncing globally (no
+  `DEV_GUILD_ID` set in the copied `.env` — global sync can take up to an
+  hour to propagate, expected for prod), and a successful gateway login as
+  `Magellan#3652`. Did not yet verify an actual end-to-end interaction
+  (an `/event create` or a 📅 reaction) against the deployed instance from
+  within this session.
+
 ## 2026-08-23 — Gate every operation behind the traveler role
 
 User: "All operations should only be permitted by people with the travel

@@ -1,0 +1,15 @@
+[Unit]
+Description=Magellan Discord bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jonathanh1386
+WorkingDirectory=/home/jonathanh1386/magellan
+ExecStart=/home/jonathanh1386/magellan/.venv/bin/magellan
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

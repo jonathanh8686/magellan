@@ -98,5 +98,43 @@ restart) or changes outside `magellan/cogs/` (`bot.py`, `config.py`,
 `store.py`) — restart normally for those. Dev-only; don't run it in
 production.
 
+## Deployment
+
+Runs in production on **omashu** (`ssh omashu`, see `~/.zshrc`) as a systemd
+service — not the same server as jonathanhsieh.dev's Docker setup, since
+this bot has no ports to expose or proxy, just an outbound gateway
+connection. Repo lives at `/home/jonathanh1386/magellan` on the server, unit
+file is `deploy/magellan-bot.service` (installed at
+`/etc/systemd/system/magellan-bot.service`).
+
+**First-time setup** (already done — for reference if redoing from scratch):
+```bash
+# on omashu
+curl -LsSf https://astral.sh/uv/install.sh | sh
+git clone git@github.com:jonathanh8686/magellan.git ~/magellan
+cd ~/magellan && uv sync --no-dev
+scp <local .env with real secrets> jonathanh1386@omashu:~/magellan/.env
+chmod 600 ~/magellan/.env
+sudo cp deploy/magellan-bot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now magellan-bot
+```
+
+**To deploy a code change**: push to `main`, then on omashu run
+`./deploy/redeploy.sh` from inside `~/magellan` (`git pull` +
+`uv sync --no-dev` + service restart). `.env` and `data/` (the sqlite
+database — plans and RSVPs) aren't touched by a redeploy; they persist
+across restarts and code updates.
+
+**Logs**: `sudo journalctl -u magellan-bot -f` (follow) or `-n 100`
+(last 100 lines). **Status**: `sudo systemctl status magellan-bot`.
+
+**Only one instance of the bot should ever be connected at a time** — the
+Discord gateway will happily accept a second connection on the same token,
+but both instances then independently receive and handle every message/
+reaction/interaction, causing duplicate DMs, duplicate plan suggestions,
+etc. Don't leave a local `uv run magellan` running while omashu's instance
+is also up.
+
 See `CLAUDE.md` for coding standards and `AGENT.md` for a running log of work
 done on this project.
