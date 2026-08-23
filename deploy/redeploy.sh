@@ -5,8 +5,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Full path, not just `uv` — ~/.local/bin is only on PATH via shell rc
+# files, which non-interactive `ssh host 'cmd'` invocations don't source.
+UV="$HOME/.local/bin/uv"
+
 git pull
-uv sync --no-dev
+"$UV" sync --no-dev
 sudo systemctl restart magellan-bot
 sleep 2
 sudo systemctl status magellan-bot --no-pager -l
