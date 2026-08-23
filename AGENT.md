@@ -4,6 +4,15 @@ Running log of work done on Magellan. Newest entries at the top. Standards
 and conventions live in `CLAUDE.md`, not here — this file is history, not
 rules.
 
+## 2026-08-22 — Bump to Python 3.12
+
+Switched from 3.10 to 3.12 (`.python-version`, `requires-python`, ruff
+`target-version`) at the user's request. `uv` already had 3.12.9 installed
+locally, so `uv sync` after deleting `.venv/` just worked. Ruff's `UP017`
+then flagged `datetime.now(timezone.utc)` → `datetime.now(UTC)` in
+`store.py` (the `UTC` alias only exists from 3.11+) — auto-fixed. Re-ran the
+import check and the `store.py` smoke test on 3.12, both clean.
+
 ## 2026-08-22 — RSVP feature: plans + DM Yes/No buttons
 
 Built the first real feature: `/event create|list|status|remind`, for the

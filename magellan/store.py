@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
@@ -102,7 +102,7 @@ class Store:
         notes: str | None,
         created_by: int,
     ) -> Event:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         cursor = await self.conn.execute(
             """
             INSERT INTO events (
@@ -138,7 +138,7 @@ class Store:
         return [Event.from_row(row) for row in rows]
 
     async def upsert_rsvp(self, event_id: int, user_id: int, status: str) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self.conn.execute(
             """
             INSERT INTO rsvps (event_id, user_id, status, responded_at)

@@ -20,7 +20,7 @@ into one file — see Architecture below.
 
 ## Stack
 
-- Python 3.10, managed with `uv` (not pip/poetry/conda). `uv add <pkg>` to add
+- Python 3.12, managed with `uv` (not pip/poetry/conda). `uv add <pkg>` to add
   a dependency, `uv add --dev <pkg>` for dev-only tools, `uv run <cmd>` to run
   anything in the project's venv.
 - `discord.py` 2.x — prefer slash commands (`app_commands`) over prefix

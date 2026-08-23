@@ -2,7 +2,7 @@
 name = "magellan"
 version = "0.1.0"
 description = "Discord bot for message listening and event planning"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "aiosqlite>=0.22.1",
     "discord-py>=2.4",
@@ -19,7 +19,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
