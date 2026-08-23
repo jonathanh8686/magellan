@@ -4,6 +4,44 @@ Running log of work done on Magellan. Newest entries at the top. Standards
 and conventions live in `CLAUDE.md`, not here — this file is history, not
 rules.
 
+## 2026-08-23 — Fix redeploy.sh self-modifying-script bug; add reaction debug logging
+
+User reported the 📅 reaction "isn't working." Two real bugs surfaced while
+investigating (neither was the actual root cause, which is still open —
+see below).
+
+- **`redeploy.sh` ran `git pull` on itself, then `uv: command not found`
+  at the line number the *old* (pre-fix) file had `uv sync` on** — classic
+  self-modifying-script bug: a running bash script reading `git pull`
+  rewriting its own file mid-execution gets stale in-memory content for
+  the rest of the run, silently reading garbled/wrong line offsets. Hit
+  this twice in a row (once for a real fix, once because the fix itself
+  still had `git pull` inside the script). Fixed by removing `git pull`
+  from `redeploy.sh` entirely — it now only does `uv sync --no-dev` +
+  restart; the deploy flow is `git pull && ./deploy/redeploy.sh` as two
+  separate commands, documented in the script's own comment and in
+  README.md. Also fixed a separate, smaller bug in the same script: `uv`
+  isn't on `PATH` for non-interactive `ssh host 'cmd'` invocations (only
+  added via shell rc sourcing), so it now calls `$HOME/.local/bin/uv`
+  explicitly.
+- **Added diagnostic logging to `planner.py`'s `on_raw_reaction_add`** —
+  every check in that handler silently returns on failure (wrong emoji, no
+  role, already handled), which made it impossible to tell from logs *why*
+  a reaction didn't trigger anything. Now logs once the emoji matches
+  `TRIGGER_EMOJI` (so unrelated reactions elsewhere in the server don't
+  spam the log), then logs which specific check bailed if any did. This is
+  meant to stay in permanently, not just for this investigation — it's the
+  only feature with a "did nothing, silently" failure mode, and low-volume
+  enough (reactions are rare) not to be noisy.
+- Redeployed twice while chasing the script bug; final state on omashu
+  after this session: running the version with debug logging, service
+  `active (running)`. Still waiting on the user to react again so the
+  logs reveal the actual cause — leading theories, not yet confirmed: (a)
+  a visually-similar-but-different calendar emoji (🗓️/📆 vs the coded 📅),
+  (b) the reacting user not actually holding the traveler role. Check
+  `AGENT.md`'s next entry (once it exists) or the git log for the
+  resolution.
+
 ## 2026-08-23 — Deploy to omashu as a systemd service
 
 User wants this running in production, on their existing server "omashu"

@@ -120,11 +120,15 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now magellan-bot
 ```
 
-**To deploy a code change**: push to `main`, then on omashu run
-`./deploy/redeploy.sh` from inside `~/magellan` (`git pull` +
-`uv sync --no-dev` + service restart). `.env` and `data/` (the sqlite
-database — plans and RSVPs) aren't touched by a redeploy; they persist
-across restarts and code updates.
+**To deploy a code change**: push to `main`, then on omashu, from inside
+`~/magellan`:
+```bash
+git pull && ./deploy/redeploy.sh   # git pull first, as a SEPARATE command —
+                                    # see the comment in redeploy.sh for why
+```
+`redeploy.sh` re-syncs prod dependencies and restarts the service. `.env`
+and `data/` (the sqlite database — plans and RSVPs) aren't touched by a
+redeploy; they persist across restarts and code updates.
 
 **Logs**: `sudo journalctl -u magellan-bot -f` (follow) or `-n 100`
 (last 100 lines). **Status**: `sudo systemctl status magellan-bot`.
