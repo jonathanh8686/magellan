@@ -168,14 +168,26 @@ class Planner(commands.Cog):
             return
         if payload.emoji.name != TRIGGER_EMOJI:
             return
+
+        logger.info(
+            "%s reaction from user=%s on message=%s in guild=%s",
+            TRIGGER_EMOJI,
+            payload.user_id,
+            payload.message_id,
+            payload.guild_id,
+        )
+
         if payload.member is None or payload.member.bot:
+            logger.info("Ignoring: no member data on the payload, or reactor is a bot")
             return
 
         guild = self.bot.get_guild(payload.guild_id)
         if not is_traveler(self.bot, guild, payload.member):
+            logger.info("Ignoring: user=%s does not have the traveler role", payload.user_id)
             return
 
         if payload.message_id in self._handled_message_ids:
+            logger.info("Ignoring: message=%s was already handled this session", payload.message_id)
             return
         self._handled_message_ids.add(payload.message_id)
 
