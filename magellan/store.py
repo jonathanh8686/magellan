@@ -30,6 +30,14 @@ CREATE TABLE IF NOT EXISTS rsvps (
     responded_at TEXT NOT NULL,
     PRIMARY KEY (event_id, user_id)
 );
+
+CREATE TABLE IF NOT EXISTS dm_messages (
+    event_id INTEGER NOT NULL REFERENCES events(id),
+    user_id INTEGER NOT NULL,
+    channel_id INTEGER NOT NULL,
+    message_id INTEGER NOT NULL,
+    PRIMARY KEY (event_id, user_id)
+);
 """
 
 
@@ -156,3 +164,33 @@ class Store:
         )
         rows = await cursor.fetchall()
         return {row["user_id"]: row["status"] for row in rows}
+
+    async def record_dm_message(
+        self, event_id: int, user_id: int, channel_id: int, message_id: int
+    ) -> None:
+        """Remember a traveler's DM copy of an event so it can be kept live.
+
+        Upserts on (event_id, user_id): if this traveler is DMed again for
+        the same event (e.g. a /event remind after the initial /event
+        create), the newer message replaces the older one as the copy we
+        keep updated — we don't try to keep every past DM in sync.
+        """
+        await self.conn.execute(
+            """
+            INSERT INTO dm_messages (event_id, user_id, channel_id, message_id)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (event_id, user_id) DO UPDATE SET
+                channel_id = excluded.channel_id, message_id = excluded.message_id
+            """,
+            (event_id, user_id, channel_id, message_id),
+        )
+        await self.conn.commit()
+
+    async def get_dm_messages(self, event_id: int) -> list[tuple[int, int, int]]:
+        """Return (user_id, channel_id, message_id) for every tracked DM of this event."""
+        cursor = await self.conn.execute(
+            "SELECT user_id, channel_id, message_id FROM dm_messages WHERE event_id = ?",
+            (event_id,),
+        )
+        rows = await cursor.fetchall()
+        return [(row["user_id"], row["channel_id"], row["message_id"]) for row in rows]

@@ -4,6 +4,44 @@ Running log of work done on Magellan. Newest entries at the top. Standards
 and conventions live in `CLAUDE.md`, not here — this file is history, not
 rules.
 
+## 2026-08-23 — Keep every DM's tally live, not just the channel post
+
+User reported: RSVPing doesn't update the DM copy of the plan embed. Root
+cause was real and simple — `refresh_announcement()` only ever knew about
+one message (`events.message_id`, the channel post); each traveler's DM
+was sent-and-forgotten, no record kept of which message to go edit later.
+
+- Added a `dm_messages` table (`event_id, user_id → channel_id,
+  message_id`, upsert-keyed on `(event_id, user_id)`) and
+  `Store.record_dm_message()` / `Store.get_dm_messages()`.
+- Renamed `refresh_announcement()` → `refresh_all_messages()`: still
+  updates the channel post, but now also fetches and edits every tracked
+  DM. Called from the same place as before (`RSVPButton.callback`) — no
+  change to *when* it runs, just what it touches.
+- Both DM-sending loops (`create_and_announce`, `event_remind`) now call
+  `record_dm_message()` right after each successful `member.send(...)`.
+  **Upsert on `(event_id, user_id)`, not insert**: if a traveler gets DMed
+  twice for the same event (create, then a later remind), the newer DM
+  message replaces the older one as "the" copy we keep live — deliberately
+  not trying to keep every historical DM in sync, just the most recent
+  one a person would actually look at. Verified this specific behavior
+  with a smoke test (record twice for the same user, confirm the second
+  write wins, first user's row updates while a second untouched user's
+  row is unaffected).
+- `bot.get_channel(dm_channel_id) or await bot.fetch_channel(...)` mirrors
+  the existing pattern for the guild channel — DM channels aren't
+  guaranteed to be in the client cache after a restart, `fetch_channel`
+  works for DM channel IDs the bot has previously created (i.e. every one
+  we've stored).
+- Each DM edit is wrapped in its own try/except (`NotFound`/`Forbidden` —
+  e.g. someone deleted the DM or blocked the bot) so one bad DM doesn't
+  stop the rest from updating.
+- Verified: `ruff check .` clean, all modules import, and the store's
+  upsert-on-second-DM behavior smoke-tested directly. Did not verify
+  against the live bot/API in this session — next redeploy to omashu
+  should include this and gets a real-world check for free next time
+  someone RSVPs.
+
 ## 2026-08-23 — Fix redeploy.sh self-modifying-script bug; add reaction debug logging
 
 User reported the 📅 reaction "isn't working." Two real bugs surfaced while

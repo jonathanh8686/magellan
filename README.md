@@ -55,10 +55,12 @@ re-checked ad hoc per feature.
 
 `/event create` (run in a server channel) posts a tally embed there and DMs
 everyone with the `TRAVELER_ROLE_ID` role a matching embed with **Going** /
-**Not going** buttons. Tapping a button anywhere (DM or the channel post)
-records the RSVP and live-updates the channel embed. `/event list`,
-`/event status <plan>`, and `/event remind <plan>` cover checking in and
-nudging stragglers. See `AGENT.md` for the full design rationale.
+**Not going** buttons. Tapping a button anywhere — the channel post *or*
+your DM — records the RSVP and live-updates **every** copy of that embed:
+the channel post and every traveler's individual DM, not just wherever the
+tap came from. `/event list`, `/event status <plan>`, and `/event remind
+<plan>` cover checking in and nudging stragglers. See `AGENT.md` for the
+full design rationale.
 
 ## 📅 React to create a plan
 

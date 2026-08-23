@@ -116,13 +116,16 @@ class RSVPButton(discord.ui.DynamicItem[discord.ui.Button], template=RSVP_CUSTOM
             f"**{event.title}** {'✅' if self.choice == 'yes' else '❌'}",
             ephemeral=True,
         )
-        await refresh_announcement(bot, event)
+        await refresh_all_messages(bot, event)
 
 
-async def refresh_announcement(bot: MagellanBot, event: Event) -> None:
-    if event.message_id is None:
-        return
-
+async def refresh_all_messages(bot: MagellanBot, event: Event) -> None:
+    """Re-render the tally embed everywhere it lives: the channel post AND
+    every traveler's individual DM copy — not just wherever this particular
+    RSVP came from. Each DM is a separate Discord message with its own
+    stale tally otherwise; `store.get_dm_messages` is how we know which
+    ones to go find and edit.
+    """
     guild = bot.get_guild(event.guild_id)
     if guild is None or bot.config.traveler_role_id is None:
         return
@@ -130,15 +133,31 @@ async def refresh_announcement(bot: MagellanBot, event: Event) -> None:
     if role is None:
         return
 
-    try:
-        channel = guild.get_channel(event.channel_id) or await bot.fetch_channel(event.channel_id)
-        message = await channel.fetch_message(event.message_id)
-    except (discord.NotFound, discord.Forbidden):
-        logger.warning("Could not refresh announcement for event %s", event.id)
-        return
-
     rsvps = await bot.store.get_rsvps(event.id)
-    await message.edit(embed=build_event_embed(event, role, rsvps))
+    embed = build_event_embed(event, role, rsvps)
+
+    if event.message_id is not None:
+        try:
+            channel = guild.get_channel(event.channel_id) or await bot.fetch_channel(
+                event.channel_id
+            )
+            message = await channel.fetch_message(event.message_id)
+            await message.edit(embed=embed)
+        except (discord.NotFound, discord.Forbidden):
+            logger.warning("Could not refresh channel announcement for event %s", event.id)
+
+    for user_id, dm_channel_id, dm_message_id in await bot.store.get_dm_messages(event.id):
+        try:
+            dm_channel = bot.get_channel(dm_channel_id) or await bot.fetch_channel(dm_channel_id)
+            dm_message = await dm_channel.fetch_message(dm_message_id)
+            await dm_message.edit(embed=embed)
+        except (discord.NotFound, discord.Forbidden):
+            logger.warning(
+                "Could not refresh DM for event %s, user %s (they may have deleted it "
+                "or blocked the bot)",
+                event.id,
+                user_id,
+            )
 
 
 async def _event_autocomplete(
@@ -230,8 +249,9 @@ class RSVP(commands.Cog):
             if member.bot:
                 continue
             try:
-                await member.send(embed=embed, view=build_rsvp_view(event.id))
+                dm = await member.send(embed=embed, view=build_rsvp_view(event.id))
                 sent += 1
+                await self.bot.store.record_dm_message(event.id, member.id, dm.channel.id, dm.id)
             except discord.Forbidden:
                 failed.append(member)
 
@@ -364,8 +384,9 @@ class RSVP(commands.Cog):
         failed: list[discord.Member] = []
         for member in pending_members:
             try:
-                await member.send(embed=embed, view=build_rsvp_view(record.id))
+                dm = await member.send(embed=embed, view=build_rsvp_view(record.id))
                 sent += 1
+                await self.bot.store.record_dm_message(record.id, member.id, dm.channel.id, dm.id)
             except discord.Forbidden:
                 failed.append(member)
 

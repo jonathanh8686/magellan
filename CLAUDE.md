@@ -145,10 +145,22 @@ into one file — see Architecture below.
   `bot.add_dynamic_items(RSVPButton)`; don't switch this back to a
   `@bot.event` on_interaction hack or a per-event `bot.add_view()` call.
 - **A button click can happen in a DM**, where `interaction.guild` is
-  `None`. `refresh_announcement()` therefore resolves the guild via
+  `None`. `refresh_all_messages()` therefore resolves the guild via
   `bot.get_guild(event.guild_id)` (stored on the event row at creation time),
   not via the interaction — don't assume `interaction.guild` is set inside
   `RSVPButton.callback`.
+- **Every RSVP-embed DM is tracked (`dm_messages` table:
+  event_id/user_id → channel_id/message_id) and gets edited on every RSVP
+  change, not just the channel announcement.** `refresh_all_messages()`
+  (called from `RSVPButton.callback` regardless of whether the click came
+  from a DM or the channel) re-fetches and edits the channel post *and*
+  every tracked DM. `record_dm_message()` is an upsert keyed on
+  `(event_id, user_id)` — if a traveler gets DMed twice for the same event
+  (`/event create` then later `/event remind`), the newer DM replaces the
+  older one as the copy we keep live; the earlier DM is left as-is (not
+  worth chasing every historical copy). Any new place that DMs a
+  traveler an RSVP embed must call `record_dm_message()` too, or that copy
+  silently goes stale forever.
 - **RSVPs are upserts** (`ON CONFLICT ... DO UPDATE`) — someone can change
   their mind and tap the other button; the last tap wins. There's no "lock
   in your answer" step.
