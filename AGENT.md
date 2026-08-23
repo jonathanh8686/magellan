@@ -33,14 +33,52 @@ see below).
   meant to stay in permanently, not just for this investigation — it's the
   only feature with a "did nothing, silently" failure mode, and low-volume
   enough (reactions are rare) not to be noisy.
-- Redeployed twice while chasing the script bug; final state on omashu
-  after this session: running the version with debug logging, service
-  `active (running)`. Still waiting on the user to react again so the
-  logs reveal the actual cause — leading theories, not yet confirmed: (a)
-  a visually-similar-but-different calendar emoji (🗓️/📆 vs the coded 📅),
-  (b) the reacting user not actually holding the traveler role. Check
-  `AGENT.md`'s next entry (once it exists) or the git log for the
-  resolution.
+**Resolution — two separate, compounding root causes, both config, no code
+was actually wrong:**
+
+1. `TRAVELER_ROLE_ID` in `.env` was `1540944965616668682`, a role from a
+   *different* guild — a "magellan testing" server with generic channels
+   the bot was invited to early on. The real trip server is "monkey mecca"
+   (`254698074323157013`), which has the actual `#europe` channel and an
+   `europeans` role at `1540959256445067264`. User supplied the correct ID
+   directly; updated `.env` on both omashu and locally (not committed —
+   real secret).
+2. **The bot had no permission to view `#europe` at all** in "monkey
+   mecca" — confirmed by querying `GET /channels/{id}` directly via the
+   Discord API and getting back `{"message": "Missing Access", "code":
+   50001}`. This is why even the broadest possible debug log (logging
+   *every* raw reaction, any emoji, before any filtering) never fired —
+   Discord's gateway doesn't dispatch events for a channel the bot can't
+   see, so this wasn't a code-path issue at all. The `Bologna`/`Milan`/
+   `Zurich`/`Interlaken` threads under `#europe` inherited the same
+   invisibility. Fixed by the user granting the `Magellan` role View
+   Channel / Read Message History / Send Messages / Add Reactions on
+   `#europe` directly in Discord (channel permissions aren't something the
+   bot can grant itself via the API without already having Manage Roles
+   there, so this had to be a human action, not something to script).
+3. To debug (2), used the bot's own token to query the Discord REST API
+   directly from omashu (`/users/@me/guilds`, `/guilds/{id}/channels`,
+   `/guilds/{id}/roles`, `/guilds/{id}/threads/active`, `/channels/{id}`)
+   via small one-off Python scripts written to `/tmp` on the server and
+   run there — never printed the token itself, only read it server-side
+   into a curl `Authorization` header. This is a generally useful pattern
+   for future "is the bot actually seeing X" questions — faster and more
+   certain than guessing from gateway log absence alone.
+4. **Confirmed fully working end-to-end** after the fix, without needing
+   the user to report back: queried the reacted message's thread via the
+   API and found the bot's own follow-up messages there — a plan
+   suggestion got posted, "Create plan" was tapped, and "QC Terme Spa" was
+   created and DMed to 9 travelers. Removed the broadest debug log
+   afterward (it was explicitly temporary); kept the narrower
+   emoji-matched one from earlier in this entry, which stays permanent.
+5. **Takeaway for future permission issues**: a bot being a guild *member*
+   doesn't mean it can see every channel — per-channel permission
+   overwrites are independent of guild membership, and a channel it can't
+   see produces total silence (no gateway events at all), not an error
+   anywhere in the bot's own logs. If a feature "does nothing" for a
+   specific channel/thread and the broad debug-log technique above (log
+   before any filtering) shows literally nothing, check channel visibility
+   via the API before suspecting the bot's code.
 
 ## 2026-08-23 — Deploy to omashu as a systemd service
 
