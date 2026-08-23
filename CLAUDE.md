@@ -164,6 +164,30 @@ into one file — see Architecture below.
 - **RSVPs are upserts** (`ON CONFLICT ... DO UPDATE`) — someone can change
   their mind and tap the other button; the last tap wins. There's no "lock
   in your answer" step.
+- **Plans have no time/date field, deliberately** — the user removed it
+  ("not important"; this group doesn't schedule around exact times). Don't
+  reintroduce a `when`/`when_text` field without the user asking; if they
+  do, it'll need a fresh migration in `Store._migrate()`, not just adding a
+  column back.
+- **`price` is always per-person**, both in `/event create`'s param
+  description and in what `planner.py` asks Claude to extract/estimate —
+  never store or display a lump/group total. Label it "Price (per person)"
+  everywhere it's shown, not just "Price", so it's unambiguous.
+- **`ai_comment` is populated only via the 📅 reaction → Claude flow**,
+  never by `/event create` (that command has no way to set it — `notes` is
+  the human-authored equivalent field). It's shown in the embed labeled
+  "🤖 Claude's Comments" specifically so nobody mistakes AI-generated
+  background/guesswork for something a human confirmed. Keep that
+  labeling if you touch this — don't rename it to something that reads as
+  authoritative.
+- **Schema changes to `events` need a migration, not just an edited
+  `SCHEMA` string.** `CREATE TABLE IF NOT EXISTS` only shapes a *brand-new*
+  database — the deployed omashu database already has rows in it, so a
+  column rename/removal needs an explicit `ALTER TABLE` in
+  `Store._migrate()` (see the `when_text` removal there for the pattern:
+  check `PRAGMA table_info`, patch only what's missing/stale, run once at
+  `connect()`). SQLite's `DROP COLUMN` needs ≥3.35 — confirmed both local
+  (3.47) and omashu (3.40) clear that bar before relying on it.
 - Not implemented yet: closing/archiving a plan, editing a plan's details
   after creation, and reminding *specific* people rather than everyone
   pending. Add these when actually needed.
@@ -187,20 +211,32 @@ into one file — see Architecture below.
   the same message (from the same or a different person) is a no-op. It's
   not persisted, so it resets on restart; that's fine, the cost of a rare
   duplicate suggestion after a restart is low.
-- **`is_plan` requires BOTH a date and a time, never just one.** A bare
-  time ("at 10am") or a bare date ("Saturday") alone is not enough —
-  `SYSTEM_PROMPT` and every `PlanDraft` field's `Field(description=...)`
-  both say so explicitly (the field descriptions flow into the JSON
-  schema `messages.parse()` sends, reinforcing the prompt at the schema
-  level too — confirmed via `PlanDraft.model_json_schema()`). This was a
-  direct fix for a real false-negative-in-reverse: an earlier prompt let
-  "cathedral at 10am" (no date at all) through as a valid plan. Don't
-  loosen this back to "a time or a day" without the user asking.
+- **`is_plan` never considers timing at all — this went through two
+  reversals, current state is final.** First version required "a time or a
+  day"; then tightened to require *both* a date and a time; then the user
+  removed timing from plans entirely ("not important," this group doesn't
+  schedule around exact times). `SYSTEM_PROMPT` and `PlanDraft.is_plan`'s
+  `Field(description=...)` both say explicitly not to let date/time
+  presence affect the decision — only "does this name a specific,
+  identifiable activity or place" matters now. There is no `when` field on
+  `PlanDraft` or `Event` at all anymore (see the RSVP feature section on
+  the schema migration this required). Don't add timing-awareness back
+  without the user asking — this has flip-flopped enough that it's worth
+  treating the current state as deliberate, not provisional.
 - **Vaguely-described places should be named, not paraphrased.** The
   prompt tells Claude to use its own knowledge to identify what a
   descriptive reference ("the big cathedral in Milan") most likely names
   (e.g. "Duomo di Milano") for the `title`, rather than repeating the
   vague phrase verbatim.
+- **`price` and `comment` are both best-effort/estimated, and both say so
+  in their `Field(description=...)`.** `price` is per-person always (see
+  RSVP section) — convert a mentioned total to per-person, or estimate
+  with a `~` prefix for a well-known paid attraction with no price stated;
+  null if there's no reasonable basis. `comment` is a 1-3 sentence blurb
+  guessing what the thing actually is, shown labeled "🤖 Claude's
+  Comments" — the prompt explicitly says it's fine to infer from a vague
+  reference since the label already tells the reader it's a guess, not a
+  confirmed fact.
 - **Processing feedback is reactions, not text**: ⏳ while the Claude call
   is in flight (removed after), then either the Create/Ignore suggestion
   reply (plan found), ❌ (message didn't have enough to act on), or ⚠️ (the
@@ -208,7 +244,8 @@ into one file — see Architecture below.
   cases — a text reply for every "couldn't find a plan" would be noisy in
   an active channel.
 - **Claude only classifies + extracts; it never creates anything.** The
-  `PlanDraft` structured output (`is_plan`, `title`, `when`, `location`) is
+  `PlanDraft` structured output (`is_plan`, `title`, `location`, `price`,
+  `comment`) is
   shown to the user as a suggestion with **Create plan** / **Ignore**
   buttons. A human tap is what actually calls
   `RSVP.create_and_announce(...)` — don't change this to auto-create on a

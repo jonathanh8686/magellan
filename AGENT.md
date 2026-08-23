@@ -4,6 +4,56 @@ Running log of work done on Magellan. Newest entries at the top. Standards
 and conventions live in `CLAUDE.md`, not here — this file is history, not
 rules.
 
+## 2026-08-23 — Drop time entirely; add price (per-person) and Claude's Comments
+
+User: "remove time at all from the events, they are not important" — a
+reversal of the earlier date+time-required work (this feature's timing
+requirement has now flip-flopped twice: "a time or day" → "both required"
+→ "irrelevant, remove it"). Also asked for a price field, and for Claude to
+generate a labeled AI blurb guessing what an extracted place/activity
+actually is. Mid-implementation, added: "price should always be per
+person."
+
+- **Schema migration, not just a model change** — `events.when_text` was
+  `NOT NULL` and omashu's deployed database already had a real row in it
+  ("QC Terme Spa"). Added `Store._migrate()`, run once at `connect()`
+  after the `CREATE TABLE IF NOT EXISTS` script: checks `PRAGMA
+  table_info(events)`, drops `when_text` if present, adds `price`/
+  `ai_comment` if missing. A brand-new database already gets the right
+  shape from `SCHEMA` directly and hits none of these branches — this only
+  patches pre-existing ones. Confirmed `DROP COLUMN` support (needs SQLite
+  ≥3.35) on both local (3.47) and omashu (3.40) before relying on it, and
+  smoke-tested the whole migration against a hand-built "old schema" db
+  with a real row, including that new inserts work correctly post-migration.
+- `Event` and `create_event()` lost `when_text`, gained `price: str | None`
+  and `ai_comment: str | None`. `RSVP.create_and_announce()`,
+  `/event create` (dropped the `when` param, added `price`), `/event
+  list`'s summary line, and `build_event_embed()` all updated to match —
+  embed shows "Price (per person)" and, when present, a "🤖 Claude's
+  Comments" field.
+- `planner.py`: `PlanDraft` lost `when`, gained `price` and `comment`
+  (both `Field(description=...)`, both flow into the JSON schema
+  `messages.parse()` sends — same pattern as the earlier date+time work,
+  just redirected at new constraints). `is_plan` no longer considers
+  timing at all — `SYSTEM_PROMPT` explicitly says not to let date/time
+  presence affect the decision, only whether a specific, identifiable
+  activity/place is named. `price` is always per-person: convert a
+  mentioned total, or estimate with a `~` prefix for a well-known paid
+  attraction with no stated price, null if there's no reasonable basis.
+  `comment` is a 1-3 sentence best-guess blurb — the prompt says it's fine
+  to infer from a vague reference since the "🤖 Claude's Comments" label
+  already marks it as AI, not confirmed fact.
+- `PlanSuggestionView.create()` now passes `price=self.draft.price` and
+  `ai_comment=self.draft.comment` through to `create_and_announce()`
+  instead of the old `when_text=self.draft.when or "TBD"`.
+- Verified: `ruff check .` clean, all modules import, migration
+  smoke-tested against a real simulated old-schema database (see above),
+  `create_event` smoke-tested with the new fields, and
+  `PlanDraft.model_json_schema()` inspected directly to confirm the new
+  field descriptions (including the per-person price framing) are what
+  actually gets sent to the API. Not yet deployed to omashu or tested
+  against the live API/bot in this session.
+
 ## 2026-08-23 — Keep every DM's tally live, not just the channel post
 
 User reported: RSVPing doesn't update the DM copy of the plan embed. Root

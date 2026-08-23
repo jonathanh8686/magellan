@@ -29,34 +29,39 @@ SYSTEM_PROMPT = (
     "You read one Discord message from a group planning a trip together. "
     "A member flagged it as a possible plan by reacting to it, so treat "
     "that as a signal it's worth a close look, not proof it's usable.\n\n"
-    "A message only counts as an actionable plan (is_plan: true) if it "
-    "names a specific thing to do AND gives BOTH a date and a time for it. "
-    "A bare time with no date ('at 10am', 'around 7') is not enough on its "
-    "own, and neither is a bare date with no time ('Saturday', 'tomorrow') "
-    "— require both. The date doesn't need to be a literal calendar date: "
-    "a day name, 'tomorrow', or 'tonight' all count as a date. Never invent "
-    "or guess a date or time that isn't stated or clearly implied by the "
-    "message itself — if either is missing, set is_plan to false rather "
-    "than filling in a plausible-sounding one.\n\n"
+    "A message counts as an actionable plan (is_plan: true) if it proposes "
+    "a specific, identifiable activity or place to visit. Timing doesn't "
+    "matter — this group doesn't schedule around exact times, so never let "
+    "the presence or absence of a time/date affect is_plan. Vague chatter "
+    "with no concrete activity or place, or a question with no proposal, "
+    "is not a plan.\n\n"
     "If it is a plan, extract:\n"
     "- title: a short, specific title. If the message describes a place "
     "rather than naming it (e.g. 'the big cathedral in Milan'), use your "
     "own knowledge of the destination to identify what it's most likely "
     "referring to (e.g. 'Duomo di Milano') instead of repeating the vague "
     "description verbatim.\n"
-    "- when: the date and time together, in the sender's own wording where "
-    "possible.\n"
-    "- location: where it is, if mentioned or identifiable from context."
+    "- location: where it is, if mentioned or identifiable from context.\n"
+    "- price: the cost PER PERSON, if mentioned (convert a total/group "
+    "price to a per-person figure if you can tell the group size). If no "
+    "price is mentioned but this is a well-known paid activity/attraction, "
+    "give your best-guess typical per-person price prefixed with '~' to "
+    "mark it as an estimate (e.g. '~€15/person'). Leave null if you have "
+    "no reasonable basis to guess.\n"
+    "- comment: a short blurb (1-3 sentences) with your best guess at what "
+    "this actually is — background, why it's notable, what to expect. This "
+    "is shown to the group explicitly labeled as AI-generated, so it's "
+    "fine to be informative even when you're inferring from a vague "
+    "reference — just don't state a guess as if it were certain fact."
 )
 
 
 class PlanDraft(BaseModel):
     is_plan: bool = Field(
         description=(
-            "True only if the message names a specific activity and gives "
-            "both a date (a day name, 'tomorrow'/'tonight', or an actual "
-            "date all count) and a time. Missing either one means false — "
-            "never treat a bare time or a bare date as sufficient on its own."
+            "True only if the message names a specific, identifiable "
+            "activity or place. Timing is irrelevant to this decision — "
+            "never require or check for a date/time."
         )
     )
     title: str | None = Field(
@@ -68,15 +73,26 @@ class PlanDraft(BaseModel):
             "rather than repeating the vague description."
         ),
     )
-    when: str | None = Field(
+    location: str | None = Field(default=None, description="Where the plan is, if mentioned.")
+    price: str | None = Field(
         default=None,
         description=(
-            "The date AND time together, in the sender's own wording where "
-            "possible. Never fill in a date or time that isn't actually "
-            "stated or clearly implied."
+            "Cost PER PERSON. If a total/group price is mentioned, convert "
+            "it to per-person. If nothing is mentioned but this is a "
+            "well-known paid activity, give a best-guess estimate prefixed "
+            "with '~' (e.g. '~€15/person'). Null if there's no reasonable "
+            "basis to guess."
         ),
     )
-    location: str | None = Field(default=None, description="Where the plan is, if mentioned.")
+    comment: str | None = Field(
+        default=None,
+        description=(
+            "1-3 sentence best-guess blurb on what this actually is — "
+            "background, why it's notable, what to expect. Shown to the "
+            "group labeled as AI-generated, so inferring from a vague "
+            "reference is fine."
+        ),
+    )
 
 
 class PlanSuggestionView(discord.ui.View):
@@ -122,10 +138,11 @@ class PlanSuggestionView(discord.ui.View):
                 guild=interaction.guild,
                 channel=interaction.channel,
                 title=self.draft.title or "Untitled plan",
-                when_text=self.draft.when or "TBD",
                 location=self.draft.location,
+                price=self.draft.price,
                 notes=None,
                 created_by=interaction.user.id,
+                ai_comment=self.draft.comment,
             )
         except RuntimeError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
@@ -221,7 +238,7 @@ class Planner(commands.Cog):
             await self._react_quietly(message, "⚠️")
             return
 
-        if not draft.is_plan or not draft.title or not draft.when:
+        if not draft.is_plan or not draft.title:
             await self._react_quietly(message, "❌")
             return
 
@@ -230,9 +247,12 @@ class Planner(commands.Cog):
             description=f"**{draft.title}**",
             color=discord.Color.blurple(),
         )
-        embed.add_field(name="When", value=draft.when, inline=True)
         if draft.location:
             embed.add_field(name="Where", value=draft.location, inline=True)
+        if draft.price:
+            embed.add_field(name="Price (per person)", value=draft.price, inline=True)
+        if draft.comment:
+            embed.add_field(name="🤖 Claude's Comments", value=draft.comment, inline=False)
         embed.set_footer(text="Detected from your message — Create to post it and DM everyone.")
 
         view = PlanSuggestionView(draft)

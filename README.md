@@ -55,26 +55,33 @@ re-checked ad hoc per feature.
 
 `/event create` (run in a server channel) posts a tally embed there and DMs
 everyone with the `TRAVELER_ROLE_ID` role a matching embed with **Going** /
-**Not going** buttons. Tapping a button anywhere — the channel post *or*
-your DM — records the RSVP and live-updates **every** copy of that embed:
-the channel post and every traveler's individual DM, not just wherever the
-tap came from. `/event list`, `/event status <plan>`, and `/event remind
-<plan>` cover checking in and nudging stragglers. See `AGENT.md` for the
-full design rationale.
+**Not going** buttons. A plan has a title, an optional location, and an
+optional per-person price — no time/date; this group doesn't schedule
+around exact times, so that's not tracked at all. Tapping a button anywhere
+— the channel post *or* your DM — records the RSVP and live-updates
+**every** copy of that embed: the channel post and every traveler's
+individual DM, not just wherever the tap came from. `/event list`,
+`/event status <plan>`, and `/event remind <plan>` cover checking in and
+nudging stragglers. See `AGENT.md` for the full design rationale.
 
 ## 📅 React to create a plan
 
 With `ANTHROPIC_API_KEY` set: react to any message with 📅 and the bot sends
 that message to Claude (`claude-sonnet-5`) to classify + extract a
-title/when/location. There's no passive listening — extraction only ever
-runs on a message a traveler explicitly flagged by reacting.
+title/location/price, plus a short blurb guessing what the thing actually
+is. There's no passive listening — extraction only ever runs on a message a
+traveler explicitly flagged by reacting.
 
 - While it's thinking, the bot adds ⏳ to the message (removed once done).
-- If it found a usable plan, it replies with a **Create plan** / **Ignore**
-  button — tapping Create runs the exact same post-and-DM flow as
-  `/event create`. Nothing is ever created without that tap.
-- If the message didn't have enough to act on (no clear activity or no
-  sense of when), the bot reacts ❌ instead of replying.
+- If it found a usable plan, it replies with a preview embed — title,
+  location, per-person price if known, and a **🤖 Claude's Comments** field
+  (a short AI-generated blurb on what the place/activity likely is, clearly
+  labeled as AI so it's never confused with something a human confirmed) —
+  plus **Create plan** / **Ignore** buttons. Tapping Create runs the exact
+  same post-and-DM flow as `/event create`, carrying the price and comment
+  through. Nothing is ever created without that tap.
+- If the message didn't name a specific, identifiable activity or place,
+  the bot reacts ❌ instead of replying.
 - If the API call itself failed, the bot reacts ⚠️.
 - Only reactions from travelers (people with the `TRAVELER_ROLE_ID` role)
   trigger it, and each message is only processed once per bot session even

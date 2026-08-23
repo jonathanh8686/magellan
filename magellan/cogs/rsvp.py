@@ -47,14 +47,17 @@ def build_event_embed(event: Event, role: discord.Role, rsvps: dict[int, str]) -
         description=event.notes or None,
         color=discord.Color.blurple(),
     )
-    embed.add_field(name="When", value=event.when_text, inline=True)
     if event.location:
         embed.add_field(name="Where", value=event.location, inline=True)
+    if event.price:
+        embed.add_field(name="Price (per person)", value=event.price, inline=True)
     embed.add_field(name=f"✅ Going ({len(going)})", value=_mention_list(going), inline=False)
     embed.add_field(
         name=f"❌ Not going ({len(not_going)})", value=_mention_list(not_going), inline=False
     )
     embed.add_field(name=f"⏳ Pending ({len(pending)})", value=_mention_list(pending), inline=False)
+    if event.ai_comment:
+        embed.add_field(name="🤖 Claude's Comments", value=event.ai_comment, inline=False)
     embed.set_footer(text=f"Plan #{event.id} · tap a button below to RSVP")
     return embed
 
@@ -214,10 +217,11 @@ class RSVP(commands.Cog):
         guild: discord.Guild,
         channel: discord.TextChannel | discord.Thread,
         title: str,
-        when_text: str,
         location: str | None,
+        price: str | None,
         notes: str | None,
         created_by: int,
+        ai_comment: str | None = None,
     ) -> tuple[Event, int, list[discord.Member]]:
         """Create a plan, post the tally embed in `channel`, and DM the traveler role.
 
@@ -233,10 +237,11 @@ class RSVP(commands.Cog):
             guild_id=guild.id,
             channel_id=channel.id,
             title=title,
-            when_text=when_text,
             location=location,
+            price=price,
             notes=notes,
             created_by=created_by,
+            ai_comment=ai_comment,
         )
 
         embed = build_event_embed(event, role, {})
@@ -260,8 +265,8 @@ class RSVP(commands.Cog):
     @event_group.command(name="create", description="Create a plan and DM every traveler to RSVP.")
     @app_commands.describe(
         title="What is this?",
-        when="When is it? (free text, e.g. 'Sat 9/14, 7pm')",
         location="Where is it? (optional)",
+        price="Price per person? (optional, e.g. '$80pp')",
         notes="Any extra details? (optional)",
     )
     @traveler_only()
@@ -269,8 +274,8 @@ class RSVP(commands.Cog):
         self,
         interaction: discord.Interaction,
         title: str,
-        when: str,
         location: str | None = None,
+        price: str | None = None,
         notes: str | None = None,
     ) -> None:
         guild = await self._require_guild(interaction)
@@ -287,8 +292,8 @@ class RSVP(commands.Cog):
             guild=guild,
             channel=interaction.channel,
             title=title,
-            when_text=when,
             location=location,
+            price=price,
             notes=notes,
             created_by=interaction.user.id,
         )
@@ -322,8 +327,9 @@ class RSVP(commands.Cog):
             going, not_going, pending = (
                 _split_roster(role, rsvps) if role else (list(rsvps), [], [])
             )
+            price_bit = f" ({event.price})" if event.price else ""
             lines.append(
-                f"**#{event.id} — {event.title}** ({event.when_text}) "
+                f"**#{event.id} — {event.title}**{price_bit} "
                 f"— ✅ {len(going)}  ❌ {len(not_going)}  ⏳ {len(pending)}"
             )
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
