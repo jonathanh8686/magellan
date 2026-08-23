@@ -1,0 +1,31 @@
+[project]
+name = "magellan"
+version = "0.1.0"
+description = "Discord bot for message listening and event planning"
+requires-python = ">=3.10"
+dependencies = [
+    "discord-py>=2.4",
+    "python-dotenv>=1.2.3",
+]
+
+[project.scripts]
+magellan = "magellan.__main__:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.4",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["magellan"]
