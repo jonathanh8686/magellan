@@ -1,11 +1,12 @@
-"""Passive message listening: when a traveler posts something plan-shaped
-in chat, ask Claude to extract it and offer to turn it into an /event.
+"""Plan detection from chat: react to a message with TRIGGER_EMOJI and the
+bot asks Claude to extract a plan from it, offering to turn it into an
+/event. No passive listening — extraction only ever runs on a message a
+human explicitly flagged.
 """
 
 from __future__ import annotations
 
 import logging
-import re
 from typing import TYPE_CHECKING
 
 import anthropic
@@ -20,29 +21,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger("magellan.cogs.planner")
 
 MODEL = "claude-sonnet-5"
-
-# Cheap keyword pre-filter so we don't send every message in the server to
-# Claude — only messages that already look plan-shaped get extracted at all.
-_TRIGGER_PATTERN = re.compile(
-    r"\b("
-    r"mon(day)?|tue(s(day)?)?|wed(nesday)?|thu(rs(day)?)?|fri(day)?|sat(urday)?|sun(day)?"
-    r"|tonight|tomorrow|today"
-    r"|\d{1,2}\s?(am|pm)"
-    r"|let'?s (go|do|meet|grab)"
-    r"|who'?s (down|in|up)"
-    r"|dinner|lunch|breakfast|brunch"
-    r")\b",
-    re.IGNORECASE,
-)
+TRIGGER_EMOJI = "📅"
 
 SYSTEM_PROMPT = (
     "You read one Discord message from a group planning a trip together. "
-    "Decide whether it is proposing a concrete plan: a specific thing to do, "
-    "at a specific time or day. Casual chat, questions with no proposal, and "
-    "talk about something already booked are not new plans. If it is a plan, "
-    "extract a short title, when it is (keep the sender's own wording for "
-    "the day/time), and a location if one is mentioned. Be conservative — "
-    "if you're not sure, set is_plan to false."
+    "A member flagged it as a possible plan by reacting to it, so treat "
+    "that as a signal it's worth a close look, not proof it's usable. "
+    "Decide whether the message actually contains enough to act on: a "
+    "specific thing to do, at a specific time or day. If it does, extract "
+    "a short title, when it is (keep the sender's own wording for the "
+    "day/time), and a location if one is mentioned. If it's too vague to "
+    "act on (no clear activity, or no sense of when), set is_plan to false."
 )
 
 
@@ -120,23 +109,62 @@ class Planner(commands.Cog):
         if bot.config.anthropic_api_key:
             self._client = anthropic.AsyncAnthropic(api_key=bot.config.anthropic_api_key)
         else:
-            logger.warning("ANTHROPIC_API_KEY not set — plan detection from chat is disabled.")
+            logger.warning(
+                "ANTHROPIC_API_KEY not set — the %s reaction trigger is disabled.", TRIGGER_EMOJI
+            )
+        # Session-scoped only (not persisted): stops a second reaction on
+        # the same message from firing a duplicate extraction/suggestion.
+        self._handled_message_ids: set[int] = set()
 
     @commands.Cog.listener()
-    async def on_message(self, message: discord.Message) -> None:
-        if self._client is None or message.author.bot or message.guild is None:
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
+        if self._client is None or payload.guild_id is None:
             return
-        if not _TRIGGER_PATTERN.search(message.content):
+        if payload.emoji.name != TRIGGER_EMOJI:
+            return
+        if payload.member is None or payload.member.bot:
             return
 
         role_id = self.bot.config.traveler_role_id
-        if role_id is None or not isinstance(message.author, discord.Member):
-            return
-        if role_id not in {r.id for r in message.author.roles}:
+        if role_id is None or role_id not in {r.id for r in payload.member.roles}:
             return
 
+        if payload.message_id in self._handled_message_ids:
+            return
+        self._handled_message_ids.add(payload.message_id)
+
+        channel = self.bot.get_channel(payload.channel_id)
+        if channel is None:
+            channel = await self.bot.fetch_channel(payload.channel_id)
+        try:
+            message = await channel.fetch_message(payload.message_id)
+        except discord.NotFound:
+            return
+        if message.author.bot or not message.content:
+            return
+
+        await self._handle_trigger(message)
+
+    async def _handle_trigger(self, message: discord.Message) -> None:
+        try:
+            await message.add_reaction("⏳")
+        except discord.HTTPException:
+            pass
+
         draft = await self._extract(message.content)
-        if draft is None or not draft.is_plan or not draft.title or not draft.when:
+
+        if self.bot.user is not None:
+            try:
+                await message.remove_reaction("⏳", self.bot.user)
+            except discord.HTTPException:
+                pass
+
+        if draft is None:
+            await self._react_quietly(message, "⚠️")
+            return
+
+        if not draft.is_plan or not draft.title or not draft.when:
+            await self._react_quietly(message, "❌")
             return
 
         embed = discord.Embed(
@@ -151,6 +179,13 @@ class Planner(commands.Cog):
 
         view = PlanSuggestionView(draft)
         view.message = await message.reply(embed=embed, view=view, mention_author=False)
+
+    @staticmethod
+    async def _react_quietly(message: discord.Message, emoji: str) -> None:
+        try:
+            await message.add_reaction(emoji)
+        except discord.HTTPException:
+            pass
 
     async def _extract(self, text: str) -> PlanDraft | None:
         assert self._client is not None

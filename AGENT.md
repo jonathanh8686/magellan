@@ -4,6 +4,41 @@ Running log of work done on Magellan. Newest entries at the top. Standards
 and conventions live in `CLAUDE.md`, not here — this file is history, not
 rules.
 
+## 2026-08-23 — Planner: reaction trigger instead of passive listening
+
+User asked to replace the passive on_message + keyword-heuristic trigger
+with an explicit one: react 📅 to a message and *that* sends it to Claude,
+instead of the bot silently scanning every message from a traveler for
+plan-shaped keywords.
+
+- Removed `_TRIGGER_PATTERN` and the `on_message` listener entirely — no
+  passive path left in `planner.py`. Added `on_raw_reaction_add` (raw, not
+  `on_reaction_add`, so it works even on messages outside the gateway
+  cache) gated on: emoji is `TRIGGER_EMOJI` (📅, a module constant), the
+  reactor is a non-bot member with the traveler role, and the message
+  hasn't already been handled this session (`_handled_message_ids`, an
+  in-memory `set[int]` — intentionally not persisted).
+- Added reaction-based processing feedback since silence would be
+  confusing for an explicit action (unlike the old passive path, where
+  silence on a non-plan message was the expected/correct behavior): ⏳
+  while extracting (added then removed), ❌ if Claude decided there wasn't
+  enough to act on, ⚠️ if the API call itself failed. A real plan still
+  gets the same Create/Ignore button reply as before.
+- Rewrote `SYSTEM_PROMPT` to reflect the new framing — the message was
+  already flagged plan-shaped by a human, so the prompt now tells Claude
+  that's a signal worth weighing, not something to re-verify from scratch,
+  while still keeping the bar for `is_plan` at "enough to act on."
+- Everything downstream of extraction is unchanged: `PlanDraft`, the
+  Create/Ignore button flow, and `RSVP.create_and_announce()` reuse are
+  all exactly as before this change.
+- Verified: `ruff check .` clean, all modules import,
+  `RawReactionActionEvent`'s attribute names (`guild_id`, `emoji`,
+  `member`, `message_id`, `channel_id`) confirmed against the installed
+  discord.py rather than assumed, and confirmed `PartialEmoji.name` holds
+  the raw unicode character for a standard emoji (so the `==` comparison
+  against `TRIGGER_EMOJI` is correct). Still not tested against a live
+  bot/API — no credentials available in this session.
+
 ## 2026-08-23 — Switch planner's model to Sonnet
 
 User hit usage limits (checked `/usage-credits`) and asked to switch the

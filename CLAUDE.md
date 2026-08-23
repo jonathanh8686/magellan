@@ -9,10 +9,10 @@ A Discord bot (discord.py) that listens to messages in servers it's in and
 helps members plan things — events, trips, hangouts. First deployed for the
 Europe 2026 trip. Two feature areas will grow over time:
 
-- **Listening**: passive message observation/parsing that feeds into
-  planning features. `cogs/planner.py` is the first of these — a keyword
-  pre-filter + Claude extraction that turns a plan-shaped chat message into
-  a suggested `/event`. See the dedicated section below.
+- **Listening**: reaction-triggered message parsing that feeds into
+  planning features. `cogs/planner.py` is the first of these — react 📅 on
+  a message and Claude extracts it into a suggested `/event`. See the
+  dedicated section below.
 - **Planning**: slash commands and flows for creating/joining/tracking plans
   (RSVPs, polls, scheduling). RSVP (`cogs/rsvp.py`) is the first of these —
   see the dedicated section below.
@@ -121,16 +121,29 @@ into one file — see Architecture below.
 
 ## Planner feature (`cogs/planner.py`)
 
-- **A cheap regex pre-filter runs before every Claude call.** `_TRIGGER_PATTERN`
-  gates on day names, "tonight"/"tomorrow", time-like tokens, and a handful
-  of planning phrases ("let's...", "who's down", meal words). This exists
-  purely to keep the bot from sending every message in the server to the
-  API — it will have false negatives (a real plan phrased unusually gets
-  missed) and that's an accepted tradeoff, not a bug to "fix" by loosening
-  it into a near-match-everything pattern.
-- **Only messages from members with the traveler role are considered** —
-  same role as RSVP's roster (`TRAVELER_ROLE_ID`), so this only fires in
-  trip-planning contexts, not general server chatter.
+- **Reaction-triggered, not passive listening.** Extraction only ever runs
+  when a human reacts 📅 (`TRIGGER_EMOJI`) to a message — there is
+  deliberately no `on_message` heuristic/keyword-filter path anymore (an
+  earlier version had one; it was replaced because an explicit reaction is
+  a better signal than a regex guess, and removes the need for cost-control
+  pre-filtering — every trigger is already a human decision). Listens via
+  `on_raw_reaction_add` (not `on_reaction_add`) so it fires even for
+  messages not in the gateway cache.
+- **Only reactions from members with the traveler role trigger it** — same
+  role as RSVP's roster (`TRAVELER_ROLE_ID`), so this only fires in
+  trip-planning contexts, not general server chatter. Checked against
+  `payload.member`, not the reacted-to message's author — it's the
+  *reactor's* intent that matters.
+- **`_handled_message_ids` is a session-only dedup set** — a second 📅 on
+  the same message (from the same or a different person) is a no-op. It's
+  not persisted, so it resets on restart; that's fine, the cost of a rare
+  duplicate suggestion after a restart is low.
+- **Processing feedback is reactions, not text**: ⏳ while the Claude call
+  is in flight (removed after), then either the Create/Ignore suggestion
+  reply (plan found), ❌ (message didn't have enough to act on), or ⚠️ (the
+  API call itself failed). Keep it to reactions for the non-suggestion
+  cases — a text reply for every "couldn't find a plan" would be noisy in
+  an active channel.
 - **Claude only classifies + extracts; it never creates anything.** The
   `PlanDraft` structured output (`is_plan`, `title`, `when`, `location`) is
   shown to the user as a suggestion with **Create plan** / **Ignore**
@@ -143,17 +156,13 @@ into one file — see Architecture below.
   to go stale after a bot restart — it's tied to one specific message from
   a few minutes ago, not a standing artifact like an event announcement.
   `on_timeout` disables the buttons after 10 minutes either way.
-- **Claude API failures are swallowed, not surfaced** — `_extract()` catches
-  `anthropic.APIError` broadly and returns `None` (no suggestion posted).
-  This is deliberate: a transient API hiccup should never look like a
-  broken bot to someone just chatting normally. If you add a feature that
-  *requires* the Claude call to succeed (unlike this best-effort one), use
-  a proper typed-exception chain instead — see `shared` error-handling
-  guidance in the Claude API docs.
-- Not implemented yet: per-user/per-channel rate limiting on the Claude
-  calls, and de-duplicating repeated suggestions when a conversation
-  reformulates the same plan across several messages. Fine at the current
-  trip-group scale (~9 people); revisit if it gets noisy.
+- **Claude API failures are swallowed, not surfaced as an error** —
+  `_extract()` catches `anthropic.APIError` broadly, returns `None`, and
+  the caller reacts ⚠️. This is deliberate: a transient API hiccup should
+  never look like a broken bot. If you add a feature that *requires* the
+  Claude call to succeed (unlike this best-effort one), use a proper
+  typed-exception chain instead — see the `shared` error-handling guidance
+  in the Claude API docs.
 
 ## Style
 
@@ -178,9 +187,9 @@ into one file — see Architecture below.
   log handler is fine, but if that ever changes, make sure token values
   can't end up in logs.
 - `ANTHROPIC_API_KEY` is optional at the `Config` level — unset just
-  disables `planner.py`'s listening (logged once as a warning), it doesn't
-  fail startup. Don't make it required; RSVP and the rest of the bot don't
-  depend on it.
+  disables `planner.py`'s 📅 reaction trigger (logged once as a warning), it
+  doesn't fail startup. Don't make it required; RSVP and the rest of the
+  bot don't depend on it.
 
 ## Workflow expectations
 
