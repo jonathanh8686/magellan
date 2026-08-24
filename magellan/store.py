@@ -39,6 +39,14 @@ CREATE TABLE IF NOT EXISTS dm_messages (
     message_id INTEGER NOT NULL,
     PRIMARY KEY (event_id, user_id)
 );
+
+CREATE TABLE IF NOT EXISTS blocked_creators (
+    guild_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    blocked_by INTEGER NOT NULL,
+    blocked_at TEXT NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+);
 """
 
 
@@ -217,3 +225,46 @@ class Store:
         )
         rows = await cursor.fetchall()
         return [(row["user_id"], row["channel_id"], row["message_id"]) for row in rows]
+
+    async def delete_event(self, event_id: int) -> None:
+        """Delete an event and everything keyed to it (RSVPs, tracked DMs).
+
+        Only touches this store's rows — the caller is responsible for
+        deleting the actual Discord messages (channel announcement + every
+        tracked DM) first, since once this runs `get_dm_messages` can no
+        longer tell you which messages those were.
+        """
+        await self.conn.execute("DELETE FROM rsvps WHERE event_id = ?", (event_id,))
+        await self.conn.execute("DELETE FROM dm_messages WHERE event_id = ?", (event_id,))
+        await self.conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
+        await self.conn.commit()
+
+    async def block_creator(self, guild_id: int, user_id: int, blocked_by: int) -> None:
+        """Stop `user_id` from creating new plans in `guild_id` — doesn't
+        touch their traveler role, so they can still RSVP/vote normally.
+        """
+        now = datetime.now(UTC).isoformat()
+        await self.conn.execute(
+            """
+            INSERT INTO blocked_creators (guild_id, user_id, blocked_by, blocked_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (guild_id, user_id) DO UPDATE SET
+                blocked_by = excluded.blocked_by, blocked_at = excluded.blocked_at
+            """,
+            (guild_id, user_id, blocked_by, now),
+        )
+        await self.conn.commit()
+
+    async def unblock_creator(self, guild_id: int, user_id: int) -> None:
+        await self.conn.execute(
+            "DELETE FROM blocked_creators WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        )
+        await self.conn.commit()
+
+    async def is_blocked_creator(self, guild_id: int, user_id: int) -> bool:
+        cursor = await self.conn.execute(
+            "SELECT 1 FROM blocked_creators WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        )
+        return await cursor.fetchone() is not None

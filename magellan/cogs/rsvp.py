@@ -23,6 +23,9 @@ logger = logging.getLogger("magellan.cogs.rsvp")
 RSVP_CUSTOM_ID_TEMPLATE = r"magellan:rsvp:(?P<event_id>\d+):(?P<choice>yes|no)"
 _DM_ONLY_ERROR = "Use this in the server, not a DM."
 _ROLE_NOT_CONFIGURED_ERROR = "The traveler role isn't configured — set TRAVELER_ROLE_ID in `.env`."
+_CREATOR_BLOCKED_MESSAGE = (
+    "You've been blocked from creating plans. You can still RSVP to existing ones."
+)
 
 
 def _split_roster(
@@ -233,6 +236,9 @@ class RSVP(commands.Cog):
         if role is None:
             raise RuntimeError(_ROLE_NOT_CONFIGURED_ERROR)
 
+        if await self.bot.store.is_blocked_creator(guild.id, created_by):
+            raise RuntimeError(_CREATOR_BLOCKED_MESSAGE)
+
         event = await self.bot.store.create_event(
             guild_id=guild.id,
             channel_id=channel.id,
@@ -288,15 +294,19 @@ class RSVP(commands.Cog):
 
         await interaction.response.defer(thinking=True)
 
-        _event, sent, failed = await self.create_and_announce(
-            guild=guild,
-            channel=interaction.channel,
-            title=title,
-            location=location,
-            price=price,
-            notes=notes,
-            created_by=interaction.user.id,
-        )
+        try:
+            _event, sent, failed = await self.create_and_announce(
+                guild=guild,
+                channel=interaction.channel,
+                title=title,
+                location=location,
+                price=price,
+                notes=notes,
+                created_by=interaction.user.id,
+            )
+        except RuntimeError as exc:
+            await interaction.followup.send(str(exc))
+            return
 
         summary = f"Created **{title}** and posted it here. DMed {sent} traveler(s) to RSVP."
         if failed:
@@ -400,6 +410,46 @@ class RSVP(commands.Cog):
         if failed:
             summary += f"\nCouldn't DM: {', '.join(m.mention for m in failed)}."
         await interaction.followup.send(summary)
+
+    @event_group.command(name="delete", description="Permanently delete a plan and its messages.")
+    @app_commands.describe(event="Which plan")
+    @app_commands.autocomplete(event=_event_autocomplete)
+    @traveler_only()
+    async def event_delete(self, interaction: discord.Interaction, event: str) -> None:
+        guild = await self._require_guild(interaction)
+        if guild is None:
+            return
+
+        record = await self._resolve_event(interaction, event)
+        if record is None:
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        if record.message_id is not None:
+            try:
+                channel = guild.get_channel(record.channel_id) or await self.bot.fetch_channel(
+                    record.channel_id
+                )
+                message = await channel.fetch_message(record.message_id)
+                await message.delete()
+            except (discord.NotFound, discord.Forbidden):
+                logger.warning("Could not delete channel message for event %s", record.id)
+
+        for _user_id, dm_channel_id, dm_message_id in await self.bot.store.get_dm_messages(
+            record.id
+        ):
+            try:
+                dm_channel = self.bot.get_channel(dm_channel_id) or await self.bot.fetch_channel(
+                    dm_channel_id
+                )
+                dm_message = await dm_channel.fetch_message(dm_message_id)
+                await dm_message.delete()
+            except (discord.NotFound, discord.Forbidden):
+                logger.warning("Could not delete a DM copy for event %s", record.id)
+
+        await self.bot.store.delete_event(record.id)
+        await interaction.followup.send(f"Deleted **{record.title}** and its messages.")
 
     async def _resolve_event(
         self, interaction: discord.Interaction, raw_event_id: str

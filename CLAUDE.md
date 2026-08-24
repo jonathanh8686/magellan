@@ -164,6 +164,22 @@ into one file — see Architecture below.
 - **RSVPs are upserts** (`ON CONFLICT ... DO UPDATE`) — someone can change
   their mind and tap the other button; the last tap wins. There's no "lock
   in your answer" step.
+- **Blocking someone from creating plans is DB-only, deliberately no slash
+  command.** `Store.block_creator()`/`unblock_creator()`/
+  `is_blocked_creator()` exist and `create_and_announce()` enforces the
+  block (raises `RuntimeError(_CREATOR_BLOCKED_MESSAGE)`, caught by both
+  `/event create` and the planner's "Create plan" button, same pattern as
+  the role-not-configured case). The user explicitly said not to expose
+  `/event block`/`/event unblock` as commands — moderation here is a
+  manual DB write (see AGENT.md for the pattern: SSH to omashu, small
+  Python script against `data/magellan.db`), not a bot feature. Don't add
+  those commands back without the user asking. Blocking someone this way
+  does **not** touch their traveler role — they can still RSVP normally,
+  only `create_and_announce()` checks the block.
+- **`/event delete <plan>`** removes an event's channel message, every
+  tracked DM, and its DB rows (`Store.delete_event()`). Delete the actual
+  Discord messages *before* calling `delete_event()` — once that runs,
+  `get_dm_messages()` can no longer tell you which messages to go clean up.
 - **Plans have no time/date field, deliberately** — the user removed it
   ("not important"; this group doesn't schedule around exact times). Don't
   reintroduce a `when`/`when_text` field without the user asking; if they

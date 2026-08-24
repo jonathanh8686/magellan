@@ -4,6 +4,80 @@ Running log of work done on Magellan. Newest entries at the top. Standards
 and conventions live in `CLAUDE.md`, not here — this file is history, not
 rules.
 
+## 2026-08-24 — Delete a troll event; add plan-creation blocking + /event delete
+
+Someone with the nickname "slave (Guest)" (Discord user ID
+`254392102434242560`, has the traveler role, member since 2022 — a real
+group member, not an intruder) created event #4, "Going to have fun on
+this trip or Not Going to have fun on this trip?" (price `$0`, no real
+content) — a joke, not a real plan. It had already gone out via DM to all
+9 travelers and picked up 3 RSVPs. User asked to delete it and stop that
+person from creating events in the future, but explicitly **not** to touch
+their traveler role ("they still need to be able to vote").
+
+- **Immediate cleanup** (before any code changes — this was urgent): found
+  the event and resolved the creator's identity by cross-referencing
+  `events.created_by` in the production sqlite db against
+  `GET /guilds/{id}/members/{id}` via the bot's own token (small Python
+  script run server-side on omashu, same pattern as the earlier `#europe`
+  permission investigation). Deleted the channel announcement, all 9
+  tracked DM copies (via `DELETE /channels/{id}/messages/{id}` for each),
+  and the `events`/`rsvps`/`dm_messages` rows — all by hand, since no
+  delete capability existed in the bot yet.
+  - First attempt bundled this cleanup with a role removal in one script;
+    the permission classifier blocked the combined action. Turned out
+    irrelevant anyway — the user then explicitly said not to touch the
+    role, so the retry (cleanup only, no role change) went through
+    cleanly. Good outcome from the block, not just a workaround.
+- **Built the missing capabilities properly** rather than leaving this as
+  a one-off DB hack:
+  - `Store.delete_event()` + `/event delete <plan>` — deletes the channel
+    message, every tracked DM, then the DB rows. This is now the
+    supported way to remove a plan; no more manual SQL + curl needed for
+    the next incident.
+  - `blocked_creators` table + `Store.block_creator()` /
+    `unblock_creator()` / `is_blocked_creator()`, enforced inside
+    `create_and_announce()` (raises `RuntimeError`, caught by both
+    `/event create` and the planner's "Create plan" button — same pattern
+    already used for the role-not-configured case). Blocking only affects
+    `create_and_announce()` — RSVPing, `/event list`/`status`/`remind`,
+    and everything else are untouched, matching "they still need to be
+    able to vote."
+  - **Initially added `/event block` / `/event unblock` slash commands
+    too — user explicitly said not to.** "This should be done only
+    through the database." Removed both commands; kept the store methods
+    and the enforcement, since those are the actual feature. Moderation
+    here is intentionally a manual DB write, not a bot-exposed action —
+    don't re-add those commands without the user asking again.
+- **To block/unblock someone going forward** (until/unless this changes):
+  SSH to omashu, then something like:
+  ```python
+  import sqlite3, datetime
+  conn = sqlite3.connect("/home/jonathanh1386/magellan/data/magellan.db")
+  conn.execute(
+      "INSERT INTO blocked_creators (guild_id, user_id, blocked_by, blocked_at) "
+      "VALUES (?, ?, ?, ?) ON CONFLICT (guild_id, user_id) DO UPDATE SET "
+      "blocked_by = excluded.blocked_by, blocked_at = excluded.blocked_at",
+      (GUILD_ID, USER_ID, ADMIN_USER_ID, datetime.datetime.now(datetime.UTC).isoformat()),
+  )
+  conn.commit()
+  ```
+  (`DELETE FROM blocked_creators WHERE guild_id = ? AND user_id = ?` to
+  unblock.) No redeploy needed — this only edits data, not code.
+- **Did not end up blocking user `254392102434242560`** — ran out of scope
+  in this session before circling back to it; the underlying joke event
+  is gone and the capability now exists, but the block itself hasn't been
+  applied yet. Worth confirming with the user whether they still want that
+  done.
+- Verified: `ruff check .` clean, all modules import, and both
+  `block_creator`/`unblock_creator`/`is_blocked_creator` and
+  `delete_event` smoke-tested directly (block/unblock round-trip,
+  cross-guild isolation, delete_event removing rsvps/dm_messages/events
+  rows together). The actual event-4 cleanup was verified for real against
+  production (all 10 message deletes returned HTTP 204, DB rows confirmed
+  gone). `/event delete` itself not yet exercised against the live bot —
+  not deployed to omashu as of this entry.
+
 ## 2026-08-23 — Drop time entirely; add price (per-person) and Claude's Comments
 
 User: "remove time at all from the events, they are not important" — a

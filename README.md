@@ -62,7 +62,13 @@ around exact times, so that's not tracked at all. Tapping a button anywhere
 **every** copy of that embed: the channel post and every traveler's
 individual DM, not just wherever the tap came from. `/event list`,
 `/event status <plan>`, and `/event remind <plan>` cover checking in and
-nudging stragglers. See `AGENT.md` for the full design rationale.
+nudging stragglers; `/event delete <plan>` removes a plan entirely (its
+channel post, every DM, and its data). See `AGENT.md` for the full design
+rationale.
+
+Blocking someone from creating plans (their RSVP ability is untouched) is a
+manual database action, not a bot command — see `AGENT.md` for the
+mechanics if you need it.
 
 ## 📅 React to create a plan
 
