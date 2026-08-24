@@ -64,19 +64,22 @@ their traveler role ("they still need to be able to vote").
   ```
   (`DELETE FROM blocked_creators WHERE guild_id = ? AND user_id = ?` to
   unblock.) No redeploy needed — this only edits data, not code.
-- **Did not end up blocking user `254392102434242560`** — ran out of scope
-  in this session before circling back to it; the underlying joke event
-  is gone and the capability now exists, but the block itself hasn't been
-  applied yet. Worth confirming with the user whether they still want that
-  done.
+- Deployed to omashu (redeploy.sh, clean restart, all three cogs loaded).
+  User then confirmed they wanted the block applied — ran the DB insert
+  above directly against production for `guild_id=254698074323157013,
+  user_id=254392102434242560`, verified by reading the row back
+  (`blocked_by=141642956753862656`, i.e. this session's user). `254392102434242560`
+  can no longer create plans via `/event create` or the 📅 → "Create plan"
+  button; RSVPing and every other command are unaffected.
 - Verified: `ruff check .` clean, all modules import, and both
   `block_creator`/`unblock_creator`/`is_blocked_creator` and
   `delete_event` smoke-tested directly (block/unblock round-trip,
   cross-guild isolation, delete_event removing rsvps/dm_messages/events
-  rows together). The actual event-4 cleanup was verified for real against
-  production (all 10 message deletes returned HTTP 204, DB rows confirmed
-  gone). `/event delete` itself not yet exercised against the live bot —
-  not deployed to omashu as of this entry.
+  rows together). The event-4 cleanup and the block insert were both
+  verified for real against production (message deletes returned HTTP
+  204, DB rows confirmed gone/present as expected). `/event delete`
+  itself not yet exercised end-to-end against the live bot — the code
+  path is deployed but no one has actually run the command yet.
 
 ## 2026-08-23 — Drop time entirely; add price (per-person) and Claude's Comments
 
